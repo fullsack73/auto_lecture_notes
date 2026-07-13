@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 
 import typer
 
-from lecture_auto.capture_runtime import FFmpegCaptureRuntimeAdapter
 from lecture_auto.cli_output import format_command_error, format_command_output
-from lecture_auto.llm_adapter import GeminiLLMAdapter, OllamaLLMAdapter, LLMConfigError
+from lecture_auto.llm_adapter import GeminiLLMAdapter, OllamaLLMAdapter
 from lecture_auto.llm_config import (
-    DEFAULT_GEMINI_MODEL,
     GEMINI_MODEL_CHOICES,
-    LLMConfig,
     normalize_gemini_model_name,
 )
 from lecture_auto.session_metadata_store import SessionMetadataStore
 from lecture_auto.session_service import SessionCommandError, SessionService
-from lecture_auto.stt_config import STTConfig, SUPPORTED_API_PROVIDERS
+from lecture_auto.stt_config import SUPPORTED_API_PROVIDERS
 from lecture_auto.library_service import LibraryService
 
 app = typer.Typer(help="Lecture automation CLI", invoke_without_command=True)
@@ -26,6 +24,7 @@ capture_app = typer.Typer(help="Capture commands")
 transcription_app = typer.Typer(help="Transcription commands")
 config_app = typer.Typer(help="Configuration commands")
 library_app = typer.Typer(help="Library commands")
+runtime_app = typer.Typer(help="Managed local AI runtime commands")
 
 
 def _get_global_config_path() -> Path:
@@ -56,164 +55,15 @@ def app_callback(
 
 
 def _build_service() -> SessionService:
-    workspace_env = os.environ.get("LECTURE_AUTO_WORKSPACE")
-    config_workspace = None
-    config_stt_language = None
-    config_llm_language = None
-    config_stt_api_provider = None
-    config_stt_api_key = None
-    config_stt_mode = None
-    config_stt_local_model = None
-    config_gemini_api_key = None
-    config_llm_provider = None
-    config_llm_model_name = None
-    config_llm_thinking_level = None
-    config_audio_format = None
-    config_capture_source = None
-    config_use_dynaudnorm = False
-    config_dynaudnorm_f = None
-    config_dynaudnorm_g = None
-    config_gain_db = None
-    config_path = _get_global_config_path()
-    
-    if config_path.exists():
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-                config_workspace = config_data.get("workspace")
-                config_stt_language = config_data.get("stt_language")
-                config_llm_language = config_data.get("llm_language")
-                config_stt_api_provider = config_data.get("stt_api_provider")
-                config_stt_api_key = config_data.get("stt_api_key")
-                config_stt_mode = config_data.get("stt_mode")
-                config_stt_local_model = config_data.get("stt_local_model")
-                config_gemini_api_key = config_data.get("gemini_api_key")
-                config_llm_provider = config_data.get("llm_provider")
-                config_llm_model_name = config_data.get("llm_model_name")
-                config_llm_thinking_level = config_data.get("llm_thinking_level")
-                config_audio_format = config_data.get("audio_format")
-                config_capture_source = config_data.get("capture_source")
-                config_use_dynaudnorm = config_data.get("use_dynaudnorm", False)
-                config_dynaudnorm_f = config_data.get("dynaudnorm_f")
-                config_dynaudnorm_g = config_data.get("dynaudnorm_g")
-                config_gain_db = config_data.get("gain_db")
-        except Exception:
-            pass
+    from lecture_auto.application import ConfigRepository, build_service_container
 
-    resolved_workspace = workspace_env or config_workspace
-    if not workspace_env and resolved_workspace:
-        os.environ["LECTURE_AUTO_WORKSPACE"] = resolved_workspace
-        
-    base_dir = Path(resolved_workspace) if resolved_workspace else Path.home() / ".lecture_auto"
-    metadata_file = base_dir / "metadata" / "sessions.json"
-    store = SessionMetadataStore(metadata_file=metadata_file)
+    return build_service_container(
+        ConfigRepository().load(),
+        gemini_adapter_cls=GeminiLLMAdapter,
+        ollama_adapter_cls=OllamaLLMAdapter,
+    ).session
 
-    llm_adapter = None
-    
-    # Determine LLM provider
-    llm_provider = (
-        os.environ.get("LLM_PROVIDER")
-        or config_llm_provider
-        or "gemini"
-    ).strip().lower()
-    if llm_provider in {"google", "google_api", "google-api", "google api"}:
-        llm_provider = "gemini"
-    if llm_provider == "local":
-        llm_provider = "ollama"
-    
-    # For Gemini provider
-    if llm_provider == "gemini":
-        api_key = os.environ.get("GEMINI_API_KEY") or config_gemini_api_key
-        if api_key and api_key.strip():
-            try:
-                model_name = (
-                    os.environ.get("LLM_MODEL")
-                    or config_llm_model_name
-                    or DEFAULT_GEMINI_MODEL
-                )
-                model_name = normalize_gemini_model_name(model_name)
-                thinking_level = (
-                    os.environ.get("LLM_THINKING_LEVEL")
-                    or config_llm_thinking_level
-                    or "medium"
-                )
-                llm_config = LLMConfig(
-                    provider="gemini",
-                    api_key=api_key,
-                    model_name=model_name.strip(),
-                    thinking_level=thinking_level.strip().lower(),
-                    language=config_llm_language,
-                )
-                llm_config.validate()
-                llm_adapter = GeminiLLMAdapter(llm_config)
-            except (LLMConfigError, ValueError):
-                llm_adapter = None
-    
-    # For Ollama provider
-    elif llm_provider == "ollama":
-        try:
-            model_name = (
-                os.environ.get("LLM_MODEL")
-                or config_llm_model_name
-                or "gemma4:31b-cloud"
-            )
-            thinking_level = (
-                os.environ.get("LLM_THINKING_LEVEL")
-                or config_llm_thinking_level
-                or "medium"
-            )
-            llm_config = LLMConfig(
-                provider="ollama",
-                api_key=None,  # Ollama doesn't need API key
-                model_name=model_name.strip(),
-                thinking_level=thinking_level.strip().lower(),
-                language=config_llm_language,
-            )
-            llm_config.validate()
-            llm_adapter = OllamaLLMAdapter(llm_config)
-        except (LLMConfigError, ValueError):
-            llm_adapter = None
-
-    resolved_dynaudnorm_f = None
-    if config_dynaudnorm_f is not None:
-        try:
-            resolved_dynaudnorm_f = int(config_dynaudnorm_f)
-        except (TypeError, ValueError):
-            pass
-
-    resolved_dynaudnorm_g = None
-    if config_dynaudnorm_g is not None:
-        try:
-            resolved_dynaudnorm_g = int(config_dynaudnorm_g)
-        except (TypeError, ValueError):
-            pass
-
-    resolved_use_dynaudnorm = bool(os.environ.get("USE_DYNAUDNORM") or config_use_dynaudnorm)
-
-    stt_config = STTConfig(
-        mode=cast(Literal["local", "api"], os.environ.get("STT_MODE") or config_stt_mode or "api"),
-        api_provider=os.environ.get("STT_API_PROVIDER") or config_stt_api_provider or "openai-compatible",
-        api_key=os.environ.get("STT_API_KEY") or config_stt_api_key,
-        local_model_name=os.environ.get("STT_LOCAL_MODEL") or config_stt_local_model or "base",
-        language=config_stt_language,
-        use_dynaudnorm=resolved_use_dynaudnorm,
-        dynaudnorm_f=resolved_dynaudnorm_f,
-        dynaudnorm_g=resolved_dynaudnorm_g,
-        gain_db=config_gain_db,
-    )
-
-    return SessionService(
-        store=store,
-        runtime_adapter=FFmpegCaptureRuntimeAdapter(
-            capture_source=os.environ.get("LECTURE_AUTO_CAPTURE_SOURCE") or config_capture_source or "microphone"
-        ),
-        stt_config=stt_config,
-        llm_adapter=llm_adapter,
-        audio_format=os.environ.get("LECTURE_AUTO_AUDIO_FORMAT") or config_audio_format or "wav",
-    )
-
-
-from typing import Callable, Any, cast, Literal
+from typing import Callable, Any
 
 def _run_or_exit(command: str, as_json: bool, action: Callable[..., Any]) -> None:
     try:
@@ -473,7 +323,9 @@ def config_set(
         updated = True
 
     if stt_api_key is not None:
-        config_data["stt_api_key"] = stt_api_key
+        from lecture_auto.application import ConfigRepository
+        ConfigRepository().set_secret("stt_api_key", stt_api_key)
+        config_data.pop("stt_api_key", None)
         typer.echo(f"Global STT API key configured.")
         updated = True
 
@@ -498,7 +350,9 @@ def config_set(
             updated = True
 
     if gemini_api_key is not None:
-        config_data["gemini_api_key"] = gemini_api_key
+        from lecture_auto.application import ConfigRepository
+        ConfigRepository().set_secret("gemini_api_key", gemini_api_key)
+        config_data.pop("gemini_api_key", None)
         typer.echo(f"Global Google API key configured.")
         updated = True
 
@@ -585,16 +439,13 @@ def config_set(
 
 @config_app.command("show")
 def config_show() -> None:
-    config_path = _get_global_config_path()
-    if config_path.exists():
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-            typer.echo(json.dumps(config_data, indent=2))
-        except Exception as e:
-            typer.echo(f"Error reading config: {e}")
-    else:
+    from lecture_auto.application import ConfigRepository
+
+    repository = ConfigRepository()
+    if not repository.exists():
         typer.echo("No global configuration found.")
+        return
+    typer.echo(json.dumps(repository.masked_dict(), indent=2))
 
 
 @library_app.command("list")
@@ -665,11 +516,76 @@ def library_open(
     )
 
 
+@runtime_app.command("status")
+def runtime_status(
+    as_json: bool = typer.Option(False, "--json", help="Render output as JSON"),
+) -> None:
+    from lecture_auto.local_runtime import LocalRuntimeManager
+
+    status = asdict(LocalRuntimeManager().probe())
+    if as_json:
+        typer.echo(json.dumps(status, ensure_ascii=False, separators=(",", ":")))
+        return
+    typer.echo(f"Python: {status['python_path'] or 'not installed'}")
+    typer.echo(f"Version: {status['python_version'] or '-'} ({status['architecture'] or '-'})")
+    typer.echo(f"Whisper: {'installed' if status['whisper_installed'] else 'not installed'}")
+    typer.echo(f"DeepFilterNet: {'installed' if status['deepfilter_installed'] else 'not installed'}")
+    if status.get("error"):
+        typer.echo(f"Error: {status['error']}")
+
+
+@runtime_app.command("install")
+def runtime_install(
+    feature: str = typer.Option("all", "--feature", help="whisper, deepfilter, or all"),
+) -> None:
+    from lecture_auto.local_runtime import LocalRuntimeManager
+
+    normalized = feature.strip().lower()
+    if normalized not in {"whisper", "deepfilter", "all"}:
+        raise typer.BadParameter("feature must be whisper, deepfilter, or all")
+    manager = LocalRuntimeManager()
+
+    def progress(stage, completed, total, message) -> None:
+        suffix = f" ({completed}/{total})" if completed is not None and total is not None else ""
+        typer.echo(f"[{stage}] {message}{suffix}")
+
+    if normalized == "whisper":
+        status = manager.install_whisper(progress=progress)
+    elif normalized == "deepfilter":
+        status = manager.install_deepfilter(progress=progress)
+    else:
+        status = manager.install_all(progress=progress)
+    typer.echo(f"Runtime ready: {status.python_path}")
+
+
+@runtime_app.command("remove")
+def runtime_remove(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+) -> None:
+    from lecture_auto.local_runtime import LocalRuntimeManager
+
+    if not yes and not typer.confirm("Remove the managed local AI runtime?"):
+        raise typer.Abort()
+    LocalRuntimeManager().remove()
+    typer.echo("Managed local AI runtime removed.")
+
+
+@runtime_app.command("repair")
+def runtime_repair() -> None:
+    from lecture_auto.local_runtime import LocalRuntimeManager
+
+    status = LocalRuntimeManager().repair(
+        progress=lambda stage, completed, total, message: typer.echo(f"[{stage}] {message}")
+    )
+    typer.echo(f"Runtime repaired: {status.python_path}")
+
+
 app.add_typer(session_app, name="session")
 app.add_typer(capture_app, name="capture")
 app.add_typer(transcription_app, name="transcription")
 app.add_typer(config_app, name="config")
 app.add_typer(library_app, name="library")
+app.add_typer(runtime_app, name="runtime")
 
 
 def main() -> None:

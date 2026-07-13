@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
+from threading import RLock
 from typing import Any
 
 METADATA_FIELDS = (
@@ -39,49 +40,53 @@ class SessionMetadataValidationError(ValueError):
 class SessionMetadataStore:
     def __init__(self, metadata_file: Path) -> None:
         self.metadata_file = metadata_file
+        self._lock = RLock()
 
     def load_all(self) -> list[dict[str, Any]]:
-        if not self.metadata_file.exists():
-            return []
+        with self._lock:
+            if not self.metadata_file.exists():
+                return []
 
-        with self.metadata_file.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+            with self.metadata_file.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
 
-        if not isinstance(payload, list):
-            raise SessionMetadataValidationError("Metadata file must contain a list of sessions")
+            if not isinstance(payload, list):
+                raise SessionMetadataValidationError("Metadata file must contain a list of sessions")
 
-        validated: list[dict[str, Any]] = []
-        for entry in payload:
-            validated.append(self._normalize_session(entry))
-        return validated
+            validated: list[dict[str, Any]] = []
+            for entry in payload:
+                validated.append(self._normalize_session(entry))
+            return validated
 
     def upsert(self, session: dict[str, Any]) -> dict[str, Any]:
-        normalized = self._normalize_session(session)
-        current = self.load_all()
+        with self._lock:
+            normalized = self._normalize_session(session)
+            current = self.load_all()
 
-        replaced = False
-        updated: list[dict[str, Any]] = []
-        for row in current:
-            if row["session_id"] == normalized["session_id"]:
+            replaced = False
+            updated: list[dict[str, Any]] = []
+            for row in current:
+                if row["session_id"] == normalized["session_id"]:
+                    updated.append(normalized)
+                    replaced = True
+                else:
+                    updated.append(row)
+
+            if not replaced:
                 updated.append(normalized)
-                replaced = True
-            else:
-                updated.append(row)
 
-        if not replaced:
-            updated.append(normalized)
-
-        self._safe_write(updated)
-        return normalized
+            self._safe_write(updated)
+            return normalized
 
     def delete(self, session_id: str) -> bool:
-        current = self.load_all()
-        filtered = [row for row in current if row["session_id"] != session_id]
-        if len(filtered) == len(current):
-            return False
+        with self._lock:
+            current = self.load_all()
+            filtered = [row for row in current if row["session_id"] != session_id]
+            if len(filtered) == len(current):
+                return False
 
-        self._safe_write(filtered)
-        return True
+            self._safe_write(filtered)
+            return True
 
     def list_recent_first(self) -> list[dict[str, Any]]:
         sessions = self.load_all()

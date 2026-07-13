@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+from lecture_auto.model_manager import default_model_dir
 from lecture_auto.stt_config import STTConfig
 from lecture_auto.stt_runtime import (
     DiarizedSegment,
@@ -37,7 +39,9 @@ class FasterWhisperSTTRuntimeAdapter:
             ) from exc
 
         logger.info("Loading faster-whisper model: %s", self._model_name)
-        self._model = WhisperModel(self._model_name, compute_type="int8")
+        installed_path = default_model_dir() / "whisper" / self._model_name
+        model_source = str(installed_path) if installed_path.is_dir() and any(installed_path.iterdir()) else self._model_name
+        self._model = WhisperModel(model_source, compute_type="int8")
         return self._model
 
     def transcribe(self, *, audio_path: str) -> STTResult:

@@ -67,6 +67,14 @@ lecture-auto summarize --id week-01
 
 Generated files are stored under the active workspace.
 
+Launch the desktop GUI:
+
+```bash
+lecture-auto-gui
+```
+
+The PySide6 desktop app shares its workspace and sessions with the CLI/TUI. It supports session management, capture, imports, audio cleanup, transcription, refinement, notes, library search, secure API-key storage, and local model management.
+
 ```text
 metadata/sessions.json
 recordings/[course/]session-id.wav

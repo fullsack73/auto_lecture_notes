@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from lecture_auto.capture_runtime import (
     NoopCaptureRuntimeAdapter,
 )
 from lecture_auto.stt_config import STTConfig
+from lecture_auto.tasking import CancellationToken, ProgressCallback, report_progress
 from lecture_auto.stt_runtime import (
     APISTTRuntimeAdapter,
     LocalSTTRuntimeAdapter,
@@ -42,6 +44,7 @@ from lecture_auto.document_converter import (
     is_supported_format,
     convert_to_pdf,
 )
+from lecture_auto.local_runtime import LocalRuntimeManager, LocalRuntimeMissingError
 
 VALID_STATES = {"idle", "recording", "stopping", "completed", "failed"}
 ALLOWED_TRANSITIONS = {
@@ -105,6 +108,7 @@ class SessionService:
         local_stt_adapter: STTRuntimeAdapter | None = None,
         api_stt_adapter: STTRuntimeAdapter | None = None,
         llm_adapter: LLMProviderAdapter | None = None,
+        local_runtime_manager: LocalRuntimeManager | None = None,
         audio_format: str = "wav",
     ) -> None:
         self.store = store
@@ -113,6 +117,7 @@ class SessionService:
         self._local_stt_adapter = local_stt_adapter
         self._api_stt_adapter = api_stt_adapter
         self.llm_adapter = llm_adapter
+        self.local_runtime_manager = local_runtime_manager
         self.audio_format = audio_format
         self._migrate_legacy_artifact_paths()
 
@@ -290,6 +295,27 @@ class SessionService:
             payload=payload,
             message=f"Loaded {payload['count']} session(s) from local history.",
         )
+
+    def recover_stale_recordings(self) -> list[str]:
+        """Mark recording sessions failed when their saved capture process no longer exists."""
+        recovered: list[str] = []
+        for session in self.store.load_all():
+            if session.get("status") != "recording":
+                continue
+            process_id = session.get("timestamps", {}).get("capture_process_id")
+            alive = isinstance(process_id, int)
+            if alive:
+                try:
+                    os.kill(process_id, 0)
+                except (OSError, ProcessLookupError):
+                    alive = False
+            if alive:
+                continue
+            session["status"] = "failed"
+            session.setdefault("timestamps", {})["recording_recovered_at"] = self._utc_now()
+            self._persist_or_raise(session)
+            recovered.append(session["session_id"])
+        return recovered
 
     def session_detail(self, session_id: str) -> CommandResult:
         session = self._require_session(session_id)
@@ -498,7 +524,14 @@ class SessionService:
                 exit_code=1,
             ) from exc
 
-    def refine_audio_noise(self, session_id: str) -> CommandResult:
+    def refine_audio_noise(
+        self,
+        session_id: str,
+        *,
+        progress_callback: ProgressCallback | None = None,
+        cancellation_token: CancellationToken | None = None,
+        job_id: str = "deepfilter",
+    ) -> CommandResult:
         """Apply noise reduction (deepFilter) to the session's audio recording."""
         session = self._require_session(session_id)
         if session["audio_file_path"] is None:
@@ -511,6 +544,49 @@ class SessionService:
 
         source_rel_path = session.get("refined_audio_file_path") or session["audio_file_path"]
         source_path = self._resolve_audio_input_path(source_rel_path)
+
+        if self.local_runtime_manager is not None:
+            refined_relative = self.store.build_refined_audio_path(
+                session_id,
+                course=session.get("course"),
+            )
+            refined_abs = (self.store.metadata_file.parent.parent / refined_relative).resolve()
+            try:
+                def runtime_progress(stage, completed, total, message) -> None:
+                    report_progress(
+                        progress_callback,
+                        job_id=job_id,
+                        session_id=session_id,
+                        stage=stage,
+                        completed=int(completed) if isinstance(completed, int) else None,
+                        total=int(total) if isinstance(total, int) else None,
+                        message=message,
+                    )
+                self.local_runtime_manager.run_feature(
+                    "deepfilter",
+                    {
+                        "action": "deepfilter",
+                        "audio_path": source_path,
+                        "output_path": str(refined_abs),
+                    },
+                    progress=runtime_progress,
+                    cancellation_token=cancellation_token,
+                    timeout=None,
+                )
+            except LocalRuntimeMissingError as exc:
+                raise SessionCommandError(
+                    code="LOCAL_DEEPFILTER_NOT_INSTALLED",
+                    message="DeepFilterNet runtime is not installed.",
+                    guidance="Open Settings > Local AI and install DeepFilterNet, then retry.",
+                    exit_code=2,
+                ) from exc
+            session["refined_audio_file_path"] = refined_relative
+            saved = self._persist_or_raise(session)
+            return CommandResult(
+                command="audio refine-noise",
+                payload=self._build_progress_payload(saved),
+                message=f"Successfully reduced noise for session '{session_id}'.",
+            )
 
         try:
             from lecture_auto.audio_amplifier import deepfilter_audio_input, AudioFilterError
@@ -845,7 +921,12 @@ class SessionService:
         session_id: str,
         *,
         source_audio_path: str | None = None,
+        progress_callback: ProgressCallback | None = None,
+        cancellation_token: CancellationToken | None = None,
+        job_id: str = "transcription",
     ) -> CommandResult:
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         session = self._require_session(session_id)
         if source_audio_path is not None:
             raise SessionCommandError(
@@ -875,9 +956,17 @@ class SessionService:
         attempt = 0
         retry_limit = MAX_STT_API_RETRIES if mode == "api" else 0
 
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage=stages[0], completed=0, total=4, message="Checking transcription settings.")
         self._run_transcription_preflight()
 
-        adapter = self._build_stt_adapter()
+        token.raise_if_cancelled()
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage=stages[1], completed=1, total=4, message="Loading STT provider.")
+        adapter = self._build_stt_adapter(
+            progress_callback=progress_callback,
+            cancellation_token=token,
+            job_id=job_id,
+            session_id=session_id,
+        )
         adapter_audio_path = audio_relative_path
         if mode == "api" and self.stt_config.api_provider == "deepgram":
             adapter_audio_path = self._resolve_audio_input_path(audio_relative_path)
@@ -889,6 +978,8 @@ class SessionService:
         while True:
             try:
                 attempt += 1
+                token.raise_if_cancelled()
+                report_progress(progress_callback, job_id=job_id, session_id=session_id, stage=stages[2], completed=2, total=4, message=f"Transcribing audio (attempt {attempt}).")
                 transcript_result = adapter.transcribe(audio_path=effective_audio_path)
                 transcript_text = transcript_result.transcript_text
                 break
@@ -925,6 +1016,7 @@ class SessionService:
             else:
                 output_text = transcript_result.to_diarized_markdown()
 
+        token.raise_if_cancelled()
         transcript_relative_path = self.store.build_raw_transcript_path(
             session_id,
             course=session.get("course"),
@@ -965,6 +1057,7 @@ class SessionService:
             "transcript_file_path": transcript_relative_path,
         }
 
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage=stages[3], completed=4, total=4, message="Transcript saved.")
         return CommandResult(
             command="transcription run",
             payload=payload,
@@ -1274,7 +1367,17 @@ class SessionService:
             message=f"Transcript for '{session_id}' reviewed (no changes)."
         )
 
-    def transcript_refine(self, session_reference: str, *, raw: bool = False) -> CommandResult:
+    def transcript_refine(
+        self,
+        session_reference: str,
+        *,
+        raw: bool = False,
+        progress_callback: ProgressCallback | None = None,
+        cancellation_token: CancellationToken | None = None,
+        job_id: str = "transcript-refine",
+    ) -> CommandResult:
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         if not self.llm_adapter:
             raise SessionCommandError(
                 code="LLM_NOT_CONFIGURED",
@@ -1334,6 +1437,7 @@ class SessionService:
 
         context_topic = session.get("title") or session.get("course")
         
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="llm_refine", completed=1, total=2, message="Refining transcript.")
         try:
             refined_text = self.llm_adapter.refine_transcript(raw_text, context_topic=context_topic)
         except LLMConfigError as exc:
@@ -1345,6 +1449,7 @@ class SessionService:
         except Exception as exc:
             raise SessionCommandError(code="LLM_UNKNOWN_ERROR", message=f"Unexpected refinement failure: {exc}", guidance="Check debug logs.", exit_code=1)
 
+        token.raise_if_cancelled()
         self._write_transcript_file(
             transcript_relative_path=self.store.build_edited_transcript_path(
                 session_id,
@@ -1355,6 +1460,7 @@ class SessionService:
 
         # Output payload logic for formatting
         target_used = "raw" if target_path == raw_transcript_path else "edited"
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="complete", completed=2, total=2, message="Refined transcript saved.")
         return CommandResult(
             command="transcript refine",
             payload={"session_id": session_id, "target_used": target_used},
@@ -1367,7 +1473,12 @@ class SessionService:
         *,
         template_name: str | None = None,
         preview: bool = False,
+        progress_callback: ProgressCallback | None = None,
+        cancellation_token: CancellationToken | None = None,
+        job_id: str = "summarize",
     ) -> CommandResult:
+        token = cancellation_token or CancellationToken()
+        token.raise_if_cancelled()
         if not self.llm_adapter:
             raise SessionCommandError(
                 code="LLM_NOT_CONFIGURED",
@@ -1387,6 +1498,7 @@ class SessionService:
             material_root = self.store.metadata_file.parent.parent
             material_path = str((material_root / session["material_file_path"]).resolve())
 
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="llm_summarize", completed=1, total=2, message="Generating structured notes.")
         try:
             notes = self.llm_adapter.generate_notes(
                 transcript=transcript_text,
@@ -1436,11 +1548,14 @@ class SessionService:
             "material_file_path": session.get("material_file_path"),
         }
 
+        token.raise_if_cancelled()
         if preview:
             payload["notes"] = notes
+            report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="complete", completed=2, total=2, message="Note preview ready.")
             return CommandResult(command="summarize", payload=payload, message=notes)
 
         self._write_note_file(note_relative_path=note_relative_path, note_text=notes)
+        report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="complete", completed=2, total=2, message="Notes saved.")
         return CommandResult(
             command="summarize",
             payload=payload,
@@ -1499,12 +1614,34 @@ class SessionService:
                 exit_code=2,
             ) from exc
 
-    def _build_stt_adapter(self) -> STTRuntimeAdapter:
+    def _build_stt_adapter(
+        self,
+        *,
+        progress_callback: ProgressCallback | None = None,
+        cancellation_token: CancellationToken | None = None,
+        job_id: str = "transcription",
+        session_id: str | None = None,
+    ) -> STTRuntimeAdapter:
         if self.stt_config.mode == "local":
             if self._local_stt_adapter is not None:
                 return self._local_stt_adapter
-            from lecture_auto.whisper_adapter import FasterWhisperSTTRuntimeAdapter
-            return FasterWhisperSTTRuntimeAdapter(config=self.stt_config)
+            from lecture_auto.local_worker_adapter import WorkerWhisperSTTRuntimeAdapter
+            def runtime_progress(stage, completed, total, message) -> None:
+                report_progress(
+                    progress_callback,
+                    job_id=job_id,
+                    session_id=session_id,
+                    stage=stage,
+                    completed=int(completed) if isinstance(completed, int) else None,
+                    total=int(total) if isinstance(total, int) else None,
+                    message=message,
+                )
+            return WorkerWhisperSTTRuntimeAdapter(
+                config=self.stt_config,
+                runtime_manager=self.local_runtime_manager or LocalRuntimeManager(),
+                progress=runtime_progress,
+                cancellation_token=cancellation_token,
+            )
 
         if self._api_stt_adapter is not None:
             return self._api_stt_adapter

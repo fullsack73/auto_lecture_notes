@@ -880,7 +880,8 @@ class OllamaLLMAdapter:
         # Check if ollama package is available
         try:
             import ollama
-            self.ollama = ollama
+            client_type = getattr(ollama, "Client", None)
+            self.ollama = client_type(host=config.ollama_base_url) if client_type else ollama
         except ImportError as exc:
             raise LLMConfigError(
                 "ollama package is not installed. Run: pip install ollama"

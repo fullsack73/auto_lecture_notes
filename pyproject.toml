@@ -10,12 +10,10 @@ dependencies = [
 	"google-genai>=1.0.0",
 	"typer>=0.12,<1.0",
 	"deepgram-sdk>=3.0.0",
-        "faster-whisper>=1.0.0",
 	"questionary>=2.0",
+	"PySide6>=6.8,<7.0",
+	"keyring>=25.0",
         "pypdf>=5.0.0",
-        "torch>=2.2.0",
-        "torchaudio>=2.2.0",
-        "deepfilternet>=0.5.6",
         "python-pptx>=0.6.0",
         "reportlab>=4.0.0",
         "pillow>=10.0.0",
@@ -25,6 +23,36 @@ dependencies = [
 [project.scripts]
 lecture_auto = "lecture_auto.cli:main"
 lecture-auto = "lecture_auto.cli:main"
+lecture-auto-gui = "lecture_auto.gui.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+]
+build = [
+    "nuitka>=2.6",
+    "ordered-set>=4.1",
+    "zstandard>=0.23",
+    "uv>=0.8",
+]
+local-whisper = [
+    "faster-whisper>=1.0.0",
+]
+local-deepfilter = [
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
+    "deepfilternet>=0.5.6",
+]
+local-all = [
+    "faster-whisper>=1.0.0",
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
+    "deepfilternet>=0.5.6",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.setuptools.package-data]
+lecture_auto = ["templates/*.md", "bin/*"]

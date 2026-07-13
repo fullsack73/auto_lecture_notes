@@ -48,6 +48,14 @@ TUI 실행:
 lecture-auto
 ```
 
+데스크톱 GUI 실행:
+
+```bash
+lecture-auto-gui
+```
+
+GUI는 기존 CLI/TUI와 같은 workspace와 세션 데이터를 사용한다. 첫 실행에서 저장 위치와 STT/LLM 방식을 선택하고, 이후 설정 화면에서 녹음 장치, API key, 로컬 Whisper 모델, Ollama 연결을 관리한다. API key는 운영체제 credential store에 저장되며 `config.json`에는 기록되지 않는다.
+
 CLI로 한 세션 처리:
 
 ```bash

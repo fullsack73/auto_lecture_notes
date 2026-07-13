@@ -316,18 +316,25 @@ def _get_global_config_path() -> Path:
 
 
 def _load_config() -> dict:
-    path = _get_global_config_path()
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    from lecture_auto.application import ConfigRepository
+
+    repository = ConfigRepository()
+    data = repository._read_raw()
+    for name in ("stt_api_key", "gemini_api_key"):
+        value = repository.secret_store.get(name)
+        if value:
+            data[name] = value
+    return data
 
 
 def _save_config(data: dict) -> None:
-    path = _get_global_config_path()
+    from lecture_auto.application import ConfigRepository
+
+    repository = ConfigRepository()
+    for name in ("stt_api_key", "gemini_api_key"):
+        if name in data:
+            repository.set_secret(name, data.pop(name) or None)
+    path = repository.path
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)

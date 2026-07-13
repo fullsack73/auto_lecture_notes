@@ -155,14 +155,16 @@ def test_service_builds_deepgram_adapter_when_provider_is_deepgram(tmp_path: Pat
 
 
 def test_service_builds_whisper_adapter_when_mode_is_local(tmp_path: Path) -> None:
-    """SessionService dispatches to FasterWhisperSTTRuntimeAdapter in local mode."""
+    """SessionService dispatches local STT through the subprocess worker adapter."""
     config = STTConfig(mode="local", local_model_name="large-v3")
     service = _service(tmp_path, config=config)
 
-    with patch("lecture_auto.whisper_adapter.FasterWhisperSTTRuntimeAdapter") as MockAdapter:
+    with patch("lecture_auto.local_worker_adapter.WorkerWhisperSTTRuntimeAdapter") as MockAdapter:
         MockAdapter.return_value = FakeDiarizedAdapter()
         adapter = service._build_stt_adapter()
-        MockAdapter.assert_called_once_with(config=config)
+        assert adapter is MockAdapter.return_value
+        assert MockAdapter.call_args.kwargs["config"] is config
+        assert "runtime_manager" in MockAdapter.call_args.kwargs
 
 
 def test_diarized_segment_speaker_continuity_in_markdown() -> None:
