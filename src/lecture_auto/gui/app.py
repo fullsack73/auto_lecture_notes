@@ -180,7 +180,7 @@ QHeaderView::section {
     border: 0;
     border-bottom: 1px solid #d8dfda;
 }
-QHeaderView::section:first { border-top-left-radius: 8px; }
+/* Rounded header sections expose the Cocoa viewport as a black corner. */
 QTableCornerButton::section { background: #eef2ef; border: 0; }
 QTabWidget::pane { background: #ffffff; border: 1px solid #d4dcd7; border-radius: 8px; top: -1px; }
 QTabBar::tab {
@@ -737,14 +737,18 @@ class LibraryPage(QWidget):
         layout.addWidget(self.empty_state, 1)
         layout.addSpacing(10)
         open_row = QHBoxLayout()
+        self.open_buttons: list[QPushButton] = []
         for label, kind in (("노트 폴더", "notes"), ("전사문 폴더", "transcripts"), ("녹음 폴더", "recordings")):
             action = QPushButton(label)
             action.clicked.connect(lambda _checked=False, value=kind: self.open_selected(value))
             open_row.addWidget(action)
+            self.open_buttons.append(action)
         open_row.addStretch()
         layout.addLayout(open_row)
 
     def refresh(self) -> None:
+        selected_item = self.table.item(self.table.currentRow(), 0)
+        selected_session_id = selected_item.text() if selected_item else None
         query = self.query.text().strip()
         result = self.window.container.library.library_search(query) if query else self.window.container.library.library_list(sort_recent=True)
         sessions = result.payload["sessions"]
@@ -752,9 +756,25 @@ class LibraryPage(QWidget):
         has_sessions = bool(sessions)
         self.table.setVisible(has_sessions)
         self.empty_state.setVisible(not has_sessions)
+        for button in self.open_buttons:
+            button.setEnabled(has_sessions)
+        if has_sessions:
+            selected_row = next(
+                (
+                    row
+                    for row, session in enumerate(sessions)
+                    if session.get("session_id") == selected_session_id
+                ),
+                0,
+            )
+            self.table.selectRow(selected_row)
 
     def open_selected(self, kind: str) -> None:
-        item = self.table.item(self.table.currentRow(), 0)
+        selected_row = self.table.currentRow()
+        if selected_row < 0 and self.table.rowCount() > 0:
+            selected_row = 0
+            self.table.selectRow(selected_row)
+        item = self.table.item(selected_row, 0)
         if not item:
             return
         self.window.execute(lambda: self.window.container.library.library_open(item.text(), open_transcript=kind == "transcripts", open_recordings=kind == "recordings"), refresh=False)

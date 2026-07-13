@@ -4,13 +4,13 @@ import json
 import time
 from threading import Event
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from PySide6.QtGui import QCloseEvent
 
 from lecture_auto.application import AppConfig, ConfigRepository
 from lecture_auto.capture_runtime import AudioDevice
-from lecture_auto.gui.app import MainWindow
+from lecture_auto.gui.app import APP_STYLE, MainWindow
 from lecture_auto.local_runtime import RuntimeStatus
 
 
@@ -40,6 +40,10 @@ def make_window(tmp_path: Path, qtbot) -> MainWindow:
     return window
 
 
+def test_table_style_avoids_macos_header_corner_artifact() -> None:
+    assert "QHeaderView::section:first" not in APP_STYLE
+
+
 def test_main_window_navigates_and_shows_created_session(tmp_path: Path, qtbot) -> None:
     window = make_window(tmp_path, qtbot)
     window.container.session.session_create("week-01", "2026-07-12", "Intro", "CS101")
@@ -51,6 +55,75 @@ def test_main_window_navigates_and_shows_created_session(tmp_path: Path, qtbot) 
     assert window.stack.currentWidget() is window.sessions_page
     assert window.sessions_page.current_session_id == "week-01"
     assert window.sessions_page.detail_title.text() == "Intro"
+
+
+def test_main_window_starts_with_capture_runtime_metadata(tmp_path: Path, qtbot) -> None:
+    workspace = tmp_path / "workspace"
+    metadata_file = workspace / "metadata" / "sessions.json"
+    metadata_file.parent.mkdir(parents=True)
+    metadata_file.write_text(
+        json.dumps(
+            [
+                {
+                    "session_id": "captured",
+                    "date": "2026-07-12",
+                    "title": "Captured lecture",
+                    "course": "CS101",
+                    "status": "completed",
+                    "audio_file_path": "recordings/captured.wav",
+                    "timestamps": {
+                        "created_at": "2026-07-12T10:00:00+00:00",
+                        "capture_process_id": 31079,
+                        "capture_backend": "ffmpeg",
+                        "recording_completed_at": "2026-07-12T11:00:00+00:00",
+                    },
+                    "naming_pending": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    repository = ConfigRepository(tmp_path / "config.json", MemorySecrets())
+    config = AppConfig(workspace=workspace)
+    repository.save(config)
+
+    window = MainWindow(repository, config)
+    qtbot.addWidget(window)
+
+    assert window.library_page.table.rowCount() == 1
+    assert window.library_page.table.item(0, 0).text() == "captured"
+
+
+def test_library_folder_buttons_open_default_selected_session(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    window.container.session.session_create(
+        "week-01",
+        "2026-07-12",
+        "Intro",
+        "CS101",
+    )
+    window.library_page.refresh()
+
+    assert window.library_page.table.currentRow() == 0
+    assert all(button.isEnabled() for button in window.library_page.open_buttons)
+
+    with patch.object(window.container.library, "library_open") as open_mock:
+        for button in window.library_page.open_buttons:
+            button.click()
+
+    assert open_mock.call_args_list == [
+        call("week-01", open_transcript=False, open_recordings=False),
+        call("week-01", open_transcript=True, open_recordings=False),
+        call("week-01", open_transcript=False, open_recordings=True),
+    ]
+
+
+def test_library_folder_buttons_disable_without_sessions(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+
+    window.library_page.refresh()
+
+    assert all(not button.isEnabled() for button in window.library_page.open_buttons)
 
 
 def test_settings_lists_matching_capture_devices(tmp_path: Path, qtbot) -> None:

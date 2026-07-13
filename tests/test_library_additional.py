@@ -225,3 +225,54 @@ def test_sort_recent_orders_by_latest_timestamp(workspace_with_store):
     service = LibraryService(store=store, base_dir=base_dir)
     result = service.library_list(sort_recent=True)
     assert [row["session_id"] for row in result.payload["sessions"]] == ["newer", "older"]
+
+
+def test_sort_recent_ignores_non_timestamp_capture_metadata(workspace_with_store):
+    base_dir, store = workspace_with_store
+    _write_sessions(
+        store,
+        [
+            {
+                "session_id": "older-capture",
+                "date": "2026-03-01",
+                "title": "Old capture",
+                "course": "C",
+                "status": "completed",
+                "audio_file_path": None,
+                "timestamps": {
+                    "created_at": "2026-03-01T10:00:00Z",
+                    "recording_completed_at": "2026-03-01T11:00:00Z",
+                    "capture_process_id": 31079,
+                    "capture_backend": "ffmpeg",
+                },
+                "naming_pending": False,
+            },
+            {
+                "session_id": "newer",
+                "date": "2026-03-02",
+                "title": "New",
+                "course": "C",
+                "status": "completed",
+                "audio_file_path": None,
+                "timestamps": {
+                    "created_at": "2026-03-02T10:00:00Z",
+                    "updated_at": "2026-03-02T11:00:00Z",
+                },
+                "naming_pending": False,
+            },
+        ],
+    )
+
+    service = LibraryService(store=store, base_dir=base_dir)
+
+    listed = service.library_list(sort_recent=True)
+    searched = service.library_search("", sort_recent=True)
+
+    assert [row["session_id"] for row in listed.payload["sessions"]] == [
+        "newer",
+        "older-capture",
+    ]
+    assert [row["session_id"] for row in searched.payload["sessions"]] == [
+        "newer",
+        "older-capture",
+    ]

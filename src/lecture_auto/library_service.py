@@ -9,6 +9,23 @@ from lecture_auto.session_service import CommandResult, SessionCommandError
 from lecture_auto.session_metadata_store import SessionMetadataStore
 
 
+def _recent_activity_key(session: dict[str, Any]) -> str:
+    """Return the latest actual timestamp while ignoring runtime metadata."""
+    timestamps = session.get("timestamps", {})
+    if not isinstance(timestamps, dict):
+        return str(session.get("date") or "")
+
+    activity_timestamps = (
+        value
+        for name, value in timestamps.items()
+        if isinstance(name, str)
+        and name.endswith("_at")
+        and isinstance(value, str)
+        and value
+    )
+    return max(activity_timestamps, default=str(session.get("date") or ""))
+
+
 class LibraryService:
     """Service for managing and searching the library of lecture sessions."""
 
@@ -58,7 +75,7 @@ class LibraryService:
         if sort_recent:
             sessions = sorted(
                 sessions,
-                key=lambda s: max(s.get("timestamps", {}).values(), default=""),
+                key=_recent_activity_key,
                 reverse=True,
             )
 
@@ -138,7 +155,7 @@ class LibraryService:
         if sort_recent:
             matched_sessions = sorted(
                 matched_sessions,
-                key=lambda s: max(s.get("timestamps", {}).values(), default=""),
+                key=_recent_activity_key,
                 reverse=True,
             )
 
