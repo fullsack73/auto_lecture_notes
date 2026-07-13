@@ -530,19 +530,20 @@ def runtime_status(
     typer.echo(f"Version: {status['python_version'] or '-'} ({status['architecture'] or '-'})")
     typer.echo(f"Whisper: {'installed' if status['whisper_installed'] else 'not installed'}")
     typer.echo(f"DeepFilterNet: {'installed' if status['deepfilter_installed'] else 'not installed'}")
+    typer.echo(f"Gemini add-on: {'installed' if status['gemini_installed'] else 'not installed'}")
     if status.get("error"):
         typer.echo(f"Error: {status['error']}")
 
 
 @runtime_app.command("install")
 def runtime_install(
-    feature: str = typer.Option("all", "--feature", help="whisper, deepfilter, or all"),
+    feature: str = typer.Option("all", "--feature", help="whisper, deepfilter, gemini, or all"),
 ) -> None:
     from lecture_auto.local_runtime import LocalRuntimeManager
 
     normalized = feature.strip().lower()
-    if normalized not in {"whisper", "deepfilter", "all"}:
-        raise typer.BadParameter("feature must be whisper, deepfilter, or all")
+    if normalized not in {"whisper", "deepfilter", "gemini", "all"}:
+        raise typer.BadParameter("feature must be whisper, deepfilter, gemini, or all")
     manager = LocalRuntimeManager()
 
     def progress(stage, completed, total, message) -> None:
@@ -553,6 +554,8 @@ def runtime_install(
         status = manager.install_whisper(progress=progress)
     elif normalized == "deepfilter":
         status = manager.install_deepfilter(progress=progress)
+    elif normalized == "gemini":
+        status = manager.install_gemini(progress=progress)
     else:
         status = manager.install_all(progress=progress)
     typer.echo(f"Runtime ready: {status.python_path}")

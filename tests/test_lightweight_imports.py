@@ -8,7 +8,7 @@ import sys
 def test_gui_import_does_not_require_local_ai_packages() -> None:
     code = r'''
 import builtins
-blocked = {"torch", "torchaudio", "faster_whisper", "ctranslate2", "df", "onnxruntime"}
+blocked = {"torch", "torchaudio", "faster_whisper", "ctranslate2", "df", "onnxruntime", "google"}
 original = builtins.__import__
 def guarded(name, *args, **kwargs):
     if name.split(".", 1)[0] in blocked:

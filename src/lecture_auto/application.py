@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 SECRET_SERVICE = "lecture-auto"
 SECRET_FIELDS = ("stt_api_key", "gemini_api_key")
+WORKSPACE_DIRECTORIES = ("metadata", "recordings", "transcripts", "notes", "materials")
 
 
 class SecretStore(Protocol):
@@ -90,17 +91,19 @@ class ConfigRepository:
     def exists(self) -> bool:
         return self.path.exists()
 
-    def load(self) -> AppConfig:
+    def load(self, *, load_secrets: bool = True) -> AppConfig:
         data = self._read_raw()
         self._migrate_plaintext_secrets(data)
 
         workspace_raw = os.environ.get("LECTURE_AUTO_WORKSPACE") or data.get("workspace")
         workspace = Path(workspace_raw) if workspace_raw else Path.home() / ".lecture_auto"
-        stt_api_key = os.environ.get("STT_API_KEY") or self.secret_store.get("stt_api_key")
-        gemini_api_key = os.environ.get("GEMINI_API_KEY") or self.secret_store.get("gemini_api_key")
+        stt_mode = os.environ.get("STT_MODE") or data.get("stt_mode") or "api"
+        stt_api_key = os.environ.get("STT_API_KEY")
+        if load_secrets and not stt_api_key and stt_mode == "api":
+            stt_api_key = self.get_secret("stt_api_key")
 
         stt = STTConfig(
-            mode=os.environ.get("STT_MODE") or data.get("stt_mode") or "api",  # type: ignore[arg-type]
+            mode=stt_mode,  # type: ignore[arg-type]
             api_provider=os.environ.get("STT_API_PROVIDER") or data.get("stt_api_provider") or "openai-compatible",
             api_key=stt_api_key,
             local_model_name=os.environ.get("STT_LOCAL_MODEL") or data.get("stt_local_model") or "base",
@@ -115,6 +118,9 @@ class ConfigRepository:
             provider = "gemini"
         if provider == "local":
             provider = "ollama"
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if load_secrets and not gemini_api_key and provider == "gemini":
+            gemini_api_key = self.get_secret("gemini_api_key")
         default_model = "gemma4:31b-cloud" if provider == "ollama" else DEFAULT_GEMINI_MODEL
         model_name = os.environ.get("LLM_MODEL") or data.get("llm_model_name") or default_model
         if provider == "gemini":
@@ -169,8 +175,15 @@ class ConfigRepository:
         temp = self.path.with_suffix(".tmp")
         temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(self.path)
-        self.set_secret("stt_api_key", config.stt.api_key)
-        self.set_secret("gemini_api_key", config.llm.api_key)
+        if config.stt.api_key:
+            self.set_secret("stt_api_key", config.stt.api_key)
+        if config.llm.api_key:
+            self.set_secret("gemini_api_key", config.llm.api_key)
+
+    def get_secret(self, name: str) -> str | None:
+        if name not in SECRET_FIELDS:
+            raise ValueError(f"Unknown secret field: {name}")
+        return self.secret_store.get(name)
 
     def set_secret(self, name: str, value: str | None) -> None:
         if name not in SECRET_FIELDS:
@@ -248,6 +261,14 @@ class ServiceContainer:
     runtime: LocalRuntimeManager
 
 
+def ensure_workspace_structure(workspace: Path) -> Path:
+    root = Path(workspace).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    for directory in WORKSPACE_DIRECTORIES:
+        (root / directory).mkdir(exist_ok=True)
+    return root
+
+
 def build_service_container(
     config: AppConfig,
     *,
@@ -262,13 +283,19 @@ def build_service_container(
     from lecture_auto.session_metadata_store import SessionMetadataStore
     from lecture_auto.session_service import SessionService
 
+    config.workspace = ensure_workspace_structure(config.workspace)
     os.environ["LECTURE_AUTO_WORKSPACE"] = str(config.workspace)
     store = SessionMetadataStore(config.workspace / "metadata" / "sessions.json")
+    local_runtime = LocalRuntimeManager()
+    custom_gemini_adapter = gemini_adapter_cls is not None and gemini_adapter_cls is not GeminiLLMAdapter
     gemini_adapter_cls = gemini_adapter_cls or GeminiLLMAdapter
     ollama_adapter_cls = ollama_adapter_cls or OllamaLLMAdapter
     llm_adapter = None
     if config.llm.provider == "gemini" and config.llm.api_key:
-        llm_adapter = gemini_adapter_cls(config.llm)
+        if custom_gemini_adapter:
+            llm_adapter = gemini_adapter_cls(config.llm)
+        else:
+            llm_adapter = gemini_adapter_cls(config.llm, runtime_manager=local_runtime)
     elif config.llm.provider == "ollama":
         llm_adapter = ollama_adapter_cls(config.llm)
     runtime = FFmpegCaptureRuntimeAdapter(
@@ -277,7 +304,6 @@ def build_service_container(
         device_name=config.capture_device_name,
         backend=config.capture_backend,
     )
-    local_runtime = LocalRuntimeManager()
     session = SessionService(
         store=store,
         runtime_adapter=runtime,

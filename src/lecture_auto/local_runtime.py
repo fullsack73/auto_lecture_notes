@@ -17,11 +17,12 @@ from typing import Any, Callable, Literal
 from lecture_auto.tasking import CancellationToken, TaskCancelledError
 
 
-RuntimeFeature = Literal["whisper", "deepfilter"]
+RuntimeFeature = Literal["whisper", "deepfilter", "gemini"]
 RuntimeProgress = Callable[[str, int | float | None, int | float | None, str], None]
 
 WHISPER_PACKAGES = ("faster-whisper>=1.0.0",)
 DEEPFILTER_PACKAGES = ("torch>=2.2.0", "torchaudio>=2.2.0", "deepfilternet>=0.5.6")
+GEMINI_PACKAGES = ("google-genai>=1.0.0",)
 
 
 class LocalRuntimeError(RuntimeError):
@@ -30,8 +31,12 @@ class LocalRuntimeError(RuntimeError):
 
 class LocalRuntimeMissingError(LocalRuntimeError):
     def __init__(self, feature: RuntimeFeature) -> None:
-        label = "Whisper" if feature == "whisper" else "DeepFilterNet"
-        super().__init__(f"{label} runtime is not installed. Open Settings > Local AI to install it.")
+        label = {
+            "whisper": "Whisper",
+            "deepfilter": "DeepFilterNet",
+            "gemini": "Gemini",
+        }[feature]
+        super().__init__(f"{label} add-on is not installed. Open Settings > Add-ons to install it.")
         self.feature = feature
 
 
@@ -53,12 +58,18 @@ class RuntimeStatus:
     whisper_version: str | None = None
     deepfilter_installed: bool = False
     deepfilter_version: str | None = None
+    gemini_installed: bool = False
+    gemini_version: str | None = None
     healthy: bool = False
     error: str | None = None
     packages: dict[str, PackageStatus] = field(default_factory=dict)
 
     def supports(self, feature: RuntimeFeature) -> bool:
-        return self.whisper_installed if feature == "whisper" else self.deepfilter_installed
+        return {
+            "whisper": self.whisper_installed,
+            "deepfilter": self.deepfilter_installed,
+            "gemini": self.gemini_installed,
+        }[feature]
 
 
 def default_runtime_dir() -> Path:
@@ -94,6 +105,7 @@ class LocalRuntimeManager:
         uv_path: str | None = None,
         allow_development_python: bool = True,
         worker_script: Path | None = None,
+        gemini_worker_script: Path | None = None,
     ) -> None:
         self.runtime_dir = Path(runtime_dir or default_runtime_dir())
         self.active_dir = self.runtime_dir / "active"
@@ -105,6 +117,7 @@ class LocalRuntimeManager:
         self.uv_path = uv_path
         self.allow_development_python = allow_development_python
         self.worker_script = worker_script or self._resolve_worker_script()
+        self.gemini_worker_script = gemini_worker_script or self._resolve_gemini_worker_script()
         self.last_probe_error: str | None = None
 
     def _resolve_worker_script(self) -> Path:
@@ -118,6 +131,18 @@ class LocalRuntimeManager:
                     return candidate
             return contents / "Resources" / "local_ai_worker.py"
         return Path(__file__).with_name("local_ai_worker.py")
+
+    def _resolve_gemini_worker_script(self) -> Path:
+        if "__compiled__" in globals():
+            contents = Path(sys.executable).resolve().parent.parent
+            for candidate in (
+                contents / "MacOS" / "gemini_addon_worker.py",
+                contents / "Resources" / "gemini_addon_worker.py",
+            ):
+                if candidate.exists():
+                    return candidate
+            return contents / "Resources" / "gemini_addon_worker.py"
+        return Path(__file__).with_name("gemini_addon_worker.py")
 
     def _load_external_python(self) -> str | None:
         try:
@@ -170,7 +195,7 @@ class LocalRuntimeManager:
                 return status
             if status.error:
                 errors.append(f"{source}: {status.error}")
-            if status.whisper_installed or status.deepfilter_installed:
+            if status.whisper_installed or status.deepfilter_installed or status.gemini_installed:
                 self.last_probe_error = status.error
                 return status
         error = "; ".join(errors) or "No candidate Python has a usable local AI runtime."
@@ -211,6 +236,7 @@ class LocalRuntimeManager:
             }
             whisper = all(packages.get(name, PackageStatus()).import_ok for name in ("faster_whisper", "ctranslate2"))
             deepfilter = all(packages.get(name, PackageStatus()).import_ok for name in ("torch", "torchaudio", "deepfilternet"))
+            gemini = packages.get("google_genai", PackageStatus()).import_ok
             import_errors = [f"{name}: {value.error}" for name, value in packages.items() if value.found and not value.import_ok and value.error]
             return RuntimeStatus(
                 python_path=str(result.get("python_path") or python),
@@ -221,7 +247,9 @@ class LocalRuntimeManager:
                 whisper_version=packages.get("faster_whisper", PackageStatus()).version,
                 deepfilter_installed=deepfilter,
                 deepfilter_version=packages.get("deepfilternet", PackageStatus()).version,
-                healthy=whisper or deepfilter,
+                gemini_installed=gemini,
+                gemini_version=packages.get("google_genai", PackageStatus()).version,
+                healthy=whisper or deepfilter or gemini,
                 error="; ".join(import_errors) or None,
                 packages=packages,
             )
@@ -259,6 +287,8 @@ class LocalRuntimeManager:
                 requested.add("whisper")
             if current and current.deepfilter_installed:
                 requested.add("deepfilter")
+            if current and current.gemini_installed:
+                requested.add("gemini")
             uv = self._resolve_uv()
             env = dict(os.environ)
             env["UV_PYTHON_INSTALL_DIR"] = str(self.python_install_dir)
@@ -274,7 +304,9 @@ class LocalRuntimeManager:
                 packages.extend(WHISPER_PACKAGES)
             if "deepfilter" in requested:
                 packages.extend(DEEPFILTER_PACKAGES)
-            self._step(progress, "packages", 2, 4, "Installing local AI packages")
+            if "gemini" in requested:
+                packages.extend(GEMINI_PACKAGES)
+            self._step(progress, "packages", 2, 4, "Installing add-on packages")
             self._run_command([str(uv), "pip", "install", "--python", str(_python_in_venv(staging)), *packages], env, progress, token)
             token.raise_if_cancelled()
             self._step(progress, "probe", 3, 4, "Validating temporary runtime")
@@ -302,8 +334,11 @@ class LocalRuntimeManager:
     def install_deepfilter(self, **kwargs: Any) -> RuntimeStatus:
         return self.install({"deepfilter"}, **kwargs)
 
+    def install_gemini(self, **kwargs: Any) -> RuntimeStatus:
+        return self.install({"gemini"}, **kwargs)
+
     def install_all(self, **kwargs: Any) -> RuntimeStatus:
-        return self.install({"whisper", "deepfilter"}, **kwargs)
+        return self.install({"whisper", "deepfilter", "gemini"}, **kwargs)
 
     def repair(self, **kwargs: Any) -> RuntimeStatus:
         status = self.probe_python(_python_in_venv(self.active_dir), source="managed")
@@ -312,7 +347,9 @@ class LocalRuntimeManager:
             features.add("whisper")
         if status.deepfilter_installed or any(name in status.packages for name in ("torch", "torchaudio", "deepfilternet")):
             features.add("deepfilter")
-        return self.install(features or {"whisper", "deepfilter"}, **kwargs)
+        if status.gemini_installed or "google_genai" in status.packages:
+            features.add("gemini")
+        return self.install(features or {"whisper", "deepfilter", "gemini"}, **kwargs)
 
     def remove(self) -> None:
         self._acquire_mutation()
@@ -359,9 +396,11 @@ class LocalRuntimeManager:
         timeout: float | None = None,
     ) -> dict[str, Any]:
         python = self.python_for(feature)
+        worker_script = self.gemini_worker_script if feature == "gemini" else self.worker_script
         return self._run_worker(
             python,
             request,
+            worker_script=worker_script,
             progress=progress,
             cancellation_token=cancellation_token,
             timeout=timeout,
@@ -392,15 +431,17 @@ class LocalRuntimeManager:
         python: Path,
         request: dict[str, Any],
         *,
+        worker_script: Path | None = None,
         progress: RuntimeProgress | None = None,
         cancellation_token: CancellationToken | None = None,
         timeout: float | None = 600,
     ) -> dict[str, Any]:
-        if not self.worker_script.is_file():
-            raise LocalRuntimeError(f"Local AI worker script is missing: {self.worker_script}")
+        selected_worker = worker_script or self.worker_script
+        if not selected_worker.is_file():
+            raise LocalRuntimeError(f"Add-on worker script is missing: {selected_worker}")
         token = cancellation_token or CancellationToken()
         process = subprocess.Popen(
-            [str(python), str(self.worker_script)],
+            [str(python), str(selected_worker)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

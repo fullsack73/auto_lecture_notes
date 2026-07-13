@@ -22,6 +22,7 @@ PACKAGE_MODULES = {
     "torchaudio": "torchaudio",
     "deepfilternet": "df",
     "onnxruntime": "onnxruntime",
+    "google_genai": "google.genai",
 }
 
 TORCHAUDIO_COMPAT = r'''
@@ -107,7 +108,8 @@ def package_probe(distribution: str, module_name: str) -> dict[str, Any]:
     try:
         module = importlib.import_module(module_name)
         try:
-            result["version"] = importlib.metadata.version(distribution)
+            package_name = "google-genai" if distribution == "google_genai" else distribution
+            result["version"] = importlib.metadata.version(package_name)
         except importlib.metadata.PackageNotFoundError:
             result["version"] = getattr(module, "__version__", None)
         result["import_ok"] = True

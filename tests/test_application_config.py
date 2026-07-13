@@ -9,14 +9,18 @@ from lecture_auto.application import AppConfig, ConfigRepository, KeyringSecretS
 class MemorySecretStore:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
+        self.reads: list[str] = []
+        self.deletes: list[str] = []
 
     def get(self, name: str) -> str | None:
+        self.reads.append(name)
         return self.values.get(name)
 
     def set(self, name: str, value: str) -> None:
         self.values[name] = value
 
     def delete(self, name: str) -> None:
+        self.deletes.append(name)
         self.values.pop(name, None)
 
 
@@ -62,6 +66,64 @@ def test_environment_overrides_saved_provider_config(tmp_path: Path, monkeypatch
 
     assert config.stt.mode == "local"
     assert config.stt.local_model_name == "small"
+
+
+def test_app_load_does_not_access_keychain(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"stt_mode": "api", "llm_provider": "gemini"}),
+        encoding="utf-8",
+    )
+    secrets = MemorySecretStore()
+    secrets.values = {
+        "stt_api_key": "stored-stt-key",
+        "gemini_api_key": "stored-gemini-key",
+    }
+
+    config = ConfigRepository(path, secrets).load(load_secrets=False)
+
+    assert config.stt.api_key is None
+    assert config.llm.api_key is None
+    assert secrets.reads == []
+
+
+def test_saving_inactive_api_providers_preserves_keychain_items(tmp_path: Path) -> None:
+    secrets = MemorySecretStore()
+    secrets.values = {
+        "stt_api_key": "stored-stt-key",
+        "gemini_api_key": "stored-gemini-key",
+    }
+    repository = ConfigRepository(tmp_path / "config.json", secrets)
+    config = AppConfig(workspace=tmp_path / "workspace")
+    config.stt.mode = "local"
+    config.llm.provider = "ollama"
+
+    repository.save(config)
+
+    assert secrets.values == {
+        "stt_api_key": "stored-stt-key",
+        "gemini_api_key": "stored-gemini-key",
+    }
+    assert secrets.deletes == []
+
+
+def test_saving_active_providers_without_new_keys_preserves_keychain_items(tmp_path: Path) -> None:
+    secrets = MemorySecretStore()
+    secrets.values = {
+        "stt_api_key": "stored-stt-key",
+        "gemini_api_key": "stored-gemini-key",
+    }
+    repository = ConfigRepository(tmp_path / "config.json", secrets)
+    config = AppConfig(workspace=tmp_path / "workspace")
+
+    repository.save(config)
+
+    assert secrets.values == {
+        "stt_api_key": "stored-stt-key",
+        "gemini_api_key": "stored-gemini-key",
+    }
+    assert secrets.reads == []
+    assert secrets.deletes == []
 
 
 def test_macos_keyring_is_skipped_when_temporary_home_has_no_login_keychain(tmp_path: Path, monkeypatch) -> None:

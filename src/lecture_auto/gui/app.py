@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from PySide6.QtCore import QDate, Qt, QTimer, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -44,7 +45,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lecture_auto.application import AppConfig, ConfigRepository, ServiceContainer, build_service_container
+from lecture_auto.application import (
+    AppConfig,
+    ConfigRepository,
+    ServiceContainer,
+    build_service_container,
+    ensure_workspace_structure,
+)
 from lecture_auto.capture_runtime import AudioDevice
 from lecture_auto.gui.i18n import Translator
 from lecture_auto.gui.jobs import JobController
@@ -56,19 +63,185 @@ from lecture_auto.tasking import TaskCancelledError, TaskEvent
 
 
 APP_STYLE = """
-QMainWindow { background: #f5f4ef; color: #20201d; }
-QWidget { font-size: 13px; }
-QFrame#Sidebar { background: #20211f; border: 0; }
-QFrame#Sidebar QPushButton { color: #eeeeea; text-align: left; border: 0; padding: 12px 16px; }
-QFrame#Sidebar QPushButton:hover, QFrame#Sidebar QPushButton:checked { background: #353732; }
-QPushButton { padding: 7px 12px; border: 1px solid #b9b8b2; border-radius: 5px; background: #ffffff; }
-QPushButton:hover { background: #ecebe5; }
-QPushButton#Primary { background: #236b55; color: white; border-color: #236b55; }
-QLineEdit, QComboBox, QDateEdit, QSpinBox, QPlainTextEdit { padding: 6px; background: white; border: 1px solid #c8c7c1; border-radius: 4px; }
-QTableWidget, QListWidget, QTextBrowser { background: white; border: 1px solid #d4d2cc; border-radius: 5px; }
-QHeaderView::section { background: #e8e7e1; padding: 7px; border: 0; }
-QLabel#PageTitle { font-size: 24px; font-weight: 700; }
-QLabel#Muted { color: #6c6b66; }
+* {
+    font-family: "Pretendard Variable", "Apple SD Gothic Neo";
+    font-size: 13px;
+    color: #18231e;
+}
+QMainWindow, QDialog, QWidget#AppRoot { background: #f3f5f2; }
+QWidget#Page, QStackedWidget { background: transparent; }
+QFrame#Sidebar { background: #17241e; border: 0; }
+QLabel#BrandMark {
+    color: #f7faf8;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+    padding: 2px 4px;
+}
+QLabel#BrandCaption {
+    color: #8fa198;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    padding: 0 4px;
+}
+QFrame#Sidebar QPushButton {
+    color: #bcc8c1;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 24px;
+    border: 0;
+    border-left: 3px solid transparent;
+    border-radius: 7px;
+    padding: 10px 14px;
+    margin: 2px 0;
+    background: transparent;
+}
+QFrame#Sidebar QPushButton:hover { color: #ffffff; background: #21322a; }
+QFrame#Sidebar QPushButton:checked {
+    color: #ffffff;
+    background: #294338;
+    border-left-color: #89c9a8;
+}
+QFrame#Sidebar QLabel#SidebarMeta {
+    color: #82938a;
+    font-size: 11px;
+    padding: 4px;
+}
+QPushButton {
+    min-height: 20px;
+    padding: 8px 14px;
+    color: #24332b;
+    font-weight: 600;
+    border: 1px solid #cbd4ce;
+    border-radius: 7px;
+    background: #ffffff;
+}
+QPushButton:hover { background: #f6f9f7; border-color: #9eafa5; }
+QPushButton:pressed { background: #edf2ef; padding-top: 9px; padding-bottom: 7px; }
+QPushButton:focus { border: 2px solid #34765a; padding: 7px 13px; }
+QPushButton:disabled { color: #9ba7a0; background: #edf0ee; border-color: #dde3df; }
+QPushButton#Primary {
+    background: #236b50;
+    color: #ffffff;
+    border-color: #236b50;
+    padding-left: 18px;
+    padding-right: 18px;
+}
+QPushButton#Primary:hover { background: #1b5b43; border-color: #1b5b43; }
+QPushButton#Primary:pressed { background: #164b37; }
+QPushButton#Danger { color: #9c403b; border-color: #e0c4c1; background: #fffafa; }
+QPushButton#Danger:hover { background: #fbecea; border-color: #cd928d; }
+QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
+    min-height: 22px;
+    padding: 7px 9px;
+    color: #17231d;
+    background: #ffffff;
+    border: 1px solid #cad3cd;
+    border-radius: 6px;
+    selection-background-color: #34765a;
+    selection-color: #ffffff;
+}
+QLineEdit:hover, QComboBox:hover, QDateEdit:hover, QSpinBox:hover,
+QDoubleSpinBox:hover, QPlainTextEdit:hover { border-color: #9eafa5; }
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QSpinBox:focus,
+QDoubleSpinBox:focus, QPlainTextEdit:focus { border: 2px solid #34765a; padding: 6px 8px; }
+QComboBox::drop-down { border: 0; width: 28px; }
+QComboBox QAbstractItemView {
+    color: #18231e;
+    background: #ffffff;
+    border: 1px solid #b9c6be;
+    selection-background-color: #dceae2;
+    selection-color: #143326;
+}
+QTableWidget, QListWidget, QTextBrowser {
+    color: #1d2a23;
+    background: #ffffff;
+    alternate-background-color: #f8faf8;
+    border: 1px solid #d4dcd7;
+    border-radius: 9px;
+    outline: 0;
+    selection-background-color: #dcebe2;
+    selection-color: #153b2a;
+}
+QTableWidget { gridline-color: #e8edea; }
+QTableWidget::item { padding: 8px 10px; border-bottom: 1px solid #edf1ee; }
+QTableWidget::item:selected { background: #dcebe2; color: #153b2a; }
+QListWidget::item { min-height: 38px; padding: 9px 11px; border-bottom: 1px solid #edf1ee; }
+QListWidget::item:hover { background: #f3f7f4; }
+QListWidget::item:selected { background: #dcebe2; color: #153b2a; border-left: 3px solid #34765a; }
+QHeaderView::section {
+    color: #536259;
+    background: #eef2ef;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 10px;
+    border: 0;
+    border-bottom: 1px solid #d8dfda;
+}
+QHeaderView::section:first { border-top-left-radius: 8px; }
+QTableCornerButton::section { background: #eef2ef; border: 0; }
+QTabWidget::pane { background: #ffffff; border: 1px solid #d4dcd7; border-radius: 8px; top: -1px; }
+QTabBar::tab {
+    color: #68756e;
+    background: transparent;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-bottom: 2px solid transparent;
+}
+QTabBar::tab:hover { color: #26372e; }
+QTabBar::tab:selected { color: #1d5f46; border-bottom-color: #34765a; }
+QScrollArea { background: transparent; border: 0; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: #c2ccc6; border-radius: 4px; min-height: 28px; }
+QScrollBar::handle:vertical:hover { background: #9fada5; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QProgressBar {
+    min-height: 7px;
+    max-height: 7px;
+    color: transparent;
+    background: #dfe6e1;
+    border: 0;
+    border-radius: 3px;
+}
+QProgressBar::chunk { background: #34765a; border-radius: 3px; }
+QCheckBox { spacing: 8px; }
+QCheckBox::indicator { width: 17px; height: 17px; border: 1px solid #aebbb3; border-radius: 4px; background: #ffffff; }
+QCheckBox::indicator:checked { background: #34765a; border-color: #34765a; }
+QLabel#PageEyebrow {
+    color: #34765a;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.1px;
+}
+QLabel#PageTitle { color: #14201a; font-size: 30px; font-weight: 800; letter-spacing: -0.7px; }
+QLabel#DetailTitle { color: #16231c; font-size: 22px; font-weight: 750; letter-spacing: -0.3px; }
+QLabel#SectionTitle { color: #1b2921; font-size: 16px; font-weight: 700; }
+QLabel#Muted { color: #66736c; font-size: 13px; }
+QLabel#Summary { color: #526158; font-size: 12px; font-weight: 600; }
+QLabel#StatusReady { color: #2c684e; font-size: 12px; font-weight: 700; }
+QFrame#EmptyState {
+    background: #e9efeb;
+    border: 1px solid #d5dfd9;
+    border-radius: 12px;
+}
+QLabel#EmptyGlyph { color: #34765a; font-size: 26px; font-weight: 800; }
+QLabel#EmptyTitle { color: #18251e; font-size: 18px; font-weight: 750; }
+QLabel#EmptyBody { color: #67756d; font-size: 13px; }
+QFrame#DetailPanel, QFrame#ActionPanel, QWidget#SettingsPanel {
+    background: #f9fbf9;
+    border: 1px solid #dbe2dd;
+    border-radius: 11px;
+}
+QFrame#TaskTray {
+    background: #e9efeb;
+    border: 1px solid #d4ddd7;
+    border-radius: 9px;
+}
+QFrame#TaskTray QListWidget { background: #f8faf8; border-color: #d7dfda; }
+QStatusBar { color: #536158; background: #eef2ef; border-top: 1px solid #dbe2dd; }
+QToolTip { color: #ffffff; background: #17241e; border: 1px solid #3d5147; padding: 5px; }
 """
 
 
@@ -151,36 +324,106 @@ class OnboardingDialog(QDialog):
         return config
 
 
+class EmptyState(QFrame):
+    def __init__(
+        self,
+        title: str,
+        body: str,
+        action_label: str | None = None,
+        action: Callable[[], None] | None = None,
+    ) -> None:
+        super().__init__()
+        self.setObjectName("EmptyState")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 32, 28, 36)
+        layout.setSpacing(7)
+        layout.addStretch()
+        glyph = QLabel("＋")
+        glyph.setObjectName("EmptyGlyph")
+        glyph.setAlignment(Qt.AlignCenter)
+        layout.addWidget(glyph)
+        heading = QLabel(title)
+        heading.setObjectName("EmptyTitle")
+        heading.setAlignment(Qt.AlignCenter)
+        layout.addWidget(heading)
+        description = QLabel(body)
+        description.setObjectName("EmptyBody")
+        description.setAlignment(Qt.AlignCenter)
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        if action_label and action:
+            button_row = QHBoxLayout()
+            button_row.addStretch()
+            button = QPushButton(action_label)
+            button.setObjectName("Primary")
+            button.clicked.connect(action)
+            button_row.addWidget(button)
+            button_row.addStretch()
+            layout.addSpacing(8)
+            layout.addLayout(button_row)
+        layout.addStretch()
+
+
 class HomePage(QWidget):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__()
+        self.setObjectName("Page")
         self.window = window
         layout = QVBoxLayout(self)
-        title = QLabel("Lecture Auto")
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        eyebrow = QLabel("LECTURE WORKSPACE")
+        eyebrow.setObjectName("PageEyebrow")
+        layout.addWidget(eyebrow)
+        layout.addSpacing(7)
+        header = QHBoxLayout()
+        header.setSpacing(20)
+        copy = QVBoxLayout()
+        copy.setSpacing(6)
+        title = QLabel("강의를 기록하고, 바로 정리하세요")
         title.setObjectName("PageTitle")
-        layout.addWidget(title)
-        subtitle = QLabel("녹음부터 구조화 노트까지 한곳에서 처리")
+        copy.addWidget(title)
+        subtitle = QLabel("녹음부터 전사와 구조화 노트까지 한 흐름으로 처리합니다.")
         subtitle.setObjectName("Muted")
-        layout.addWidget(subtitle)
-        actions = QHBoxLayout()
+        copy.addWidget(subtitle)
+        header.addLayout(copy)
+        header.addStretch()
         create = QPushButton("새 세션")
         create.setObjectName("Primary")
         create.clicked.connect(window.create_session)
-        actions.addWidget(create)
-        actions.addStretch()
-        layout.addLayout(actions)
+        header.addWidget(create, 0, Qt.AlignVCenter)
+        layout.addLayout(header)
+        layout.addSpacing(30)
+        section_header = QHBoxLayout()
+        section_title = QLabel("최근 세션")
+        section_title.setObjectName("SectionTitle")
+        section_header.addWidget(section_title)
+        section_header.addStretch()
         self.summary = QLabel()
-        layout.addWidget(self.summary)
+        self.summary.setObjectName("Summary")
+        section_header.addWidget(self.summary)
+        layout.addLayout(section_header)
+        layout.addSpacing(10)
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["ID", "날짜", "제목", "과목", "상태"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        configure_session_table(self.table)
         self.table.doubleClicked.connect(self._open_selected)
         layout.addWidget(self.table)
+        self.empty_state = EmptyState(
+            "아직 세션이 없습니다",
+            "첫 강의 세션을 만들면 녹음, 전사, 노트 생성 과정을 여기서 확인할 수 있습니다.",
+            "첫 세션 만들기",
+            window.create_session,
+        )
+        layout.addWidget(self.empty_state, 1)
 
     def refresh(self) -> None:
         sessions = self.window.container.session.session_history().payload["sessions"]
-        self.summary.setText(f"전체 세션 {len(sessions)}개 · 실행 중 작업 {self.window.jobs.active_count}개")
+        self.summary.setText(f"전체 {len(sessions)}개  ·  실행 중 {self.window.jobs.active_count}개")
         fill_session_table(self.table, sessions[:10])
+        has_sessions = bool(sessions)
+        self.table.setVisible(has_sessions)
+        self.empty_state.setVisible(not has_sessions)
 
     def _open_selected(self) -> None:
         item = self.table.item(self.table.currentRow(), 0)
@@ -192,55 +435,92 @@ class HomePage(QWidget):
 class SessionsPage(QWidget):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__()
+        self.setObjectName("Page")
         self.window = window
         self.current_session_id: str | None = None
         outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        eyebrow = QLabel("SESSION MANAGER")
+        eyebrow.setObjectName("PageEyebrow")
+        outer.addWidget(eyebrow)
+        outer.addSpacing(7)
         header = QHBoxLayout()
-        title = QLabel("세션")
+        heading = QVBoxLayout()
+        heading.setSpacing(5)
+        title = QLabel("세션 관리")
         title.setObjectName("PageTitle")
-        header.addWidget(title)
+        heading.addWidget(title)
+        subtitle = QLabel("강의별 녹음과 전사, 노트 생성 상태를 한곳에서 관리합니다.")
+        subtitle.setObjectName("Muted")
+        heading.addWidget(subtitle)
+        header.addLayout(heading)
         header.addStretch()
         create = QPushButton("새 세션")
         create.setObjectName("Primary")
         create.clicked.connect(window.create_session)
-        header.addWidget(create)
+        header.addWidget(create, 0, Qt.AlignVCenter)
         outer.addLayout(header)
+        outer.addSpacing(24)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("ID, 제목, 과목 검색")
+        self.search.setPlaceholderText("ID, 제목 또는 과목으로 검색")
+        self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.refresh)
         outer.addWidget(self.search)
+        outer.addSpacing(12)
         content = QHBoxLayout()
+        content.setSpacing(14)
         self.list = QListWidget()
-        self.list.setMinimumWidth(260)
+        self.list.setObjectName("SessionList")
+        self.list.setMinimumWidth(280)
+        self.list.setAlternatingRowColors(True)
         self.list.currentItemChanged.connect(self._selection_changed)
         content.addWidget(self.list, 1)
-        detail = QWidget()
+        detail = QFrame()
+        detail.setObjectName("DetailPanel")
         detail_layout = QVBoxLayout(detail)
+        detail_layout.setContentsMargins(20, 18, 20, 20)
+        detail_layout.setSpacing(10)
         self.detail_title = QLabel("세션을 선택하세요")
-        self.detail_title.setObjectName("PageTitle")
+        self.detail_title.setObjectName("DetailTitle")
         self.detail_meta = QLabel()
+        self.detail_meta.setObjectName("Muted")
         self.detail_meta.setWordWrap(True)
         detail_layout.addWidget(self.detail_title)
         detail_layout.addWidget(self.detail_meta)
-        actions = QGridLayout()
+        detail_layout.addSpacing(2)
+        action_panel = QFrame()
+        action_panel.setObjectName("ActionPanel")
+        actions = QGridLayout(action_panel)
+        actions.setContentsMargins(12, 12, 12, 12)
+        actions.setHorizontalSpacing(8)
+        actions.setVerticalSpacing(8)
         definitions = [
-            ("수정", self.edit_session), ("삭제", self.delete_session),
-            ("녹음 시작", self.capture_start), ("녹음 중지", self.capture_stop),
-            ("오디오 가져오기", self.import_audio), ("자료 첨부", self.import_material),
-            ("볼륨 보정", self.refine_volume), ("노이즈 제거", self.refine_noise),
-            ("전사", self.transcribe), ("전사문 refine", self.refine_transcript),
-            ("노트 미리보기", self.preview_notes), ("노트 저장", self.save_notes),
-            ("노트 폴더", lambda: self.open_folder("notes")),
-            ("전사문 폴더", lambda: self.open_folder("transcripts")),
-            ("녹음 폴더", lambda: self.open_folder("recordings")),
+            ("세션 수정", self.edit_session, None),
+            ("세션 삭제", self.delete_session, "Danger"),
+            ("녹음 시작", self.capture_start, "Primary"),
+            ("녹음 중지", self.capture_stop, None),
+            ("오디오 가져오기", self.import_audio, None),
+            ("자료 첨부", self.import_material, None),
+            ("볼륨 보정", self.refine_volume, None),
+            ("노이즈 제거", self.refine_noise, None),
+            ("전사 시작", self.transcribe, None),
+            ("전사문 다듬기", self.refine_transcript, None),
+            ("노트 미리보기", self.preview_notes, None),
+            ("노트 저장", self.save_notes, None),
+            ("노트 폴더", lambda: self.open_folder("notes"), None),
+            ("전사문 폴더", lambda: self.open_folder("transcripts"), None),
+            ("녹음 폴더", lambda: self.open_folder("recordings"), None),
         ]
         self.action_buttons: list[QPushButton] = []
-        for index, (label, callback) in enumerate(definitions):
+        for index, (label, callback, object_name) in enumerate(definitions):
             button = QPushButton(label)
+            if object_name:
+                button.setObjectName(object_name)
             button.clicked.connect(callback)
-            actions.addWidget(button, index // 4, index % 4)
+            actions.addWidget(button, index // 5, index % 5)
             self.action_buttons.append(button)
-        detail_layout.addLayout(actions)
+        detail_layout.addWidget(action_panel)
         self.tabs = QTabWidget()
         self.transcript_view = QTextBrowser()
         self.note_view = QTextBrowser()
@@ -253,6 +533,7 @@ class SessionsPage(QWidget):
         content.addWidget(detail, 3)
         outer.addLayout(content)
         self._set_actions_enabled(False)
+        self.tabs.setEnabled(False)
 
     def refresh(self, *_args: object) -> None:
         selected = self.current_session_id
@@ -264,7 +545,10 @@ class SessionsPage(QWidget):
         self.list.clear()
         selected_item = None
         for row in rows:
-            text = f"{row['date']}  {row.get('title') or row['session_id']}\n{row.get('course') or '과목 없음'} · {row['status']}"
+            text = (
+                f"{row['date']}  {row.get('title') or row['session_id']}\n"
+                f"{row.get('course') or '과목 없음'} · {format_status(row.get('status'))}"
+            )
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, row["session_id"])
             self.list.addItem(item)
@@ -290,14 +574,18 @@ class SessionsPage(QWidget):
         self._set_actions_enabled(bool(session_id))
         if not session_id:
             self.detail_title.setText("세션을 선택하세요")
-            self.detail_meta.clear()
+            self.detail_meta.setText("왼쪽 목록에서 세션을 선택하면 작업 도구와 결과물을 확인할 수 있습니다.")
             self.raw_view.clear()
             self.transcript_view.clear()
             self.note_view.clear()
+            self.tabs.setEnabled(False)
             return
         session = self.window.container.session.session_detail(session_id).payload
+        self.tabs.setEnabled(True)
         self.detail_title.setText(str(session.get("title") or session_id))
-        self.detail_meta.setText(f"{session['date']} · {session.get('course') or '과목 없음'} · {session['status']}")
+        self.detail_meta.setText(
+            f"{session['date']} · {session.get('course') or '과목 없음'} · {format_status(session.get('status'))}"
+        )
         self.raw_view.setPlainText(json.dumps(session, ensure_ascii=False, indent=2))
         self._load_artifact(self.transcript_view, session.get("transcript_file_path"))
         note_rel = self.window.container.session.store.build_note_path(session_id, course=session.get("course"))
@@ -377,20 +665,28 @@ class SessionsPage(QWidget):
 
     def transcribe(self) -> None:
         sid = self._require_id()
+        if not self.window.ensure_provider_credentials("stt"):
+            return
         if self.window.config.stt.mode == "local" and not self.window.ensure_local_feature("whisper"):
             return
         self.window.run_background("전사", sid, lambda token, progress, job: self.window.container.session.transcribe_session(sid, cancellation_token=token, progress_callback=progress, job_id=job))
 
     def refine_transcript(self) -> None:
         sid = self._require_id()
+        if not self.window.ensure_provider_credentials("llm"):
+            return
         self.window.run_background("전사문 refine", sid, lambda token, progress, job: self.window.container.session.transcript_refine(sid, cancellation_token=token, progress_callback=progress, job_id=job))
 
     def preview_notes(self) -> None:
         sid = self._require_id()
+        if not self.window.ensure_provider_credentials("llm"):
+            return
         self.window.run_background("노트 미리보기", sid, lambda token, progress, job: self.window.container.session.summarize_session(sid, preview=True, cancellation_token=token, progress_callback=progress, job_id=job))
 
     def save_notes(self) -> None:
         sid = self._require_id()
+        if not self.window.ensure_provider_credentials("llm"):
+            return
         self.window.run_background("노트 저장", sid, lambda token, progress, job: self.window.container.session.summarize_session(sid, preview=False, cancellation_token=token, progress_callback=progress, job_id=job))
 
     def open_folder(self, kind: str) -> None:
@@ -401,23 +697,45 @@ class SessionsPage(QWidget):
 class LibraryPage(QWidget):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__()
+        self.setObjectName("Page")
         self.window = window
         layout = QVBoxLayout(self)
-        title = QLabel("보관함")
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        eyebrow = QLabel("ARCHIVE")
+        eyebrow.setObjectName("PageEyebrow")
+        layout.addWidget(eyebrow)
+        layout.addSpacing(7)
+        title = QLabel("강의 보관함")
         title.setObjectName("PageTitle")
         layout.addWidget(title)
+        layout.addSpacing(5)
+        subtitle = QLabel("완료된 세션과 노트 내용을 빠르게 찾아봅니다.")
+        subtitle.setObjectName("Muted")
+        layout.addWidget(subtitle)
+        layout.addSpacing(24)
         row = QHBoxLayout()
+        row.setSpacing(8)
         self.query = QLineEdit()
         self.query.setPlaceholderText("세션 ID 또는 노트 내용 검색")
+        self.query.setClearButtonEnabled(True)
+        self.query.returnPressed.connect(self.refresh)
         button = QPushButton("검색")
         button.clicked.connect(self.refresh)
         row.addWidget(self.query)
         row.addWidget(button)
         layout.addLayout(row)
+        layout.addSpacing(12)
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["ID", "날짜", "제목", "과목", "상태"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        configure_session_table(self.table)
         layout.addWidget(self.table)
+        self.empty_state = EmptyState(
+            "보관함이 비어 있습니다",
+            "세션을 만들고 전사나 노트를 저장하면 이곳에서 검색할 수 있습니다.",
+        )
+        layout.addWidget(self.empty_state, 1)
+        layout.addSpacing(10)
         open_row = QHBoxLayout()
         for label, kind in (("노트 폴더", "notes"), ("전사문 폴더", "transcripts"), ("녹음 폴더", "recordings")):
             action = QPushButton(label)
@@ -429,7 +747,11 @@ class LibraryPage(QWidget):
     def refresh(self) -> None:
         query = self.query.text().strip()
         result = self.window.container.library.library_search(query) if query else self.window.container.library.library_list(sort_recent=True)
-        fill_session_table(self.table, result.payload["sessions"])
+        sessions = result.payload["sessions"]
+        fill_session_table(self.table, sessions)
+        has_sessions = bool(sessions)
+        self.table.setVisible(has_sessions)
+        self.empty_state.setVisible(not has_sessions)
 
     def open_selected(self, kind: str) -> None:
         item = self.table.item(self.table.currentRow(), 0)
@@ -441,16 +763,34 @@ class LibraryPage(QWidget):
 class SettingsPage(QWidget):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__()
+        self.setObjectName("Page")
         self.window = window
         self._runtime_probe_requested = False
         outer = QVBoxLayout(self)
-        title = QLabel("설정")
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        eyebrow = QLabel("PREFERENCES")
+        eyebrow.setObjectName("PageEyebrow")
+        outer.addWidget(eyebrow)
+        outer.addSpacing(7)
+        title = QLabel("앱 설정")
         title.setObjectName("PageTitle")
         outer.addWidget(title)
+        outer.addSpacing(5)
+        subtitle = QLabel("녹음 환경과 전사·노트 생성 방식을 설정합니다.")
+        subtitle.setObjectName("Muted")
+        outer.addWidget(subtitle)
+        outer.addSpacing(20)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
+        body.setObjectName("SettingsPanel")
         form = QFormLayout(body)
+        form.setContentsMargins(22, 20, 22, 24)
+        form.setHorizontalSpacing(20)
+        form.setVerticalSpacing(12)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.addRow(settings_section("일반 및 녹음"))
         self.workspace = QLineEdit()
         workspace_row = QHBoxLayout()
         workspace_row.addWidget(self.workspace)
@@ -472,6 +812,7 @@ class SettingsPage(QWidget):
         form.addRow("오디오 형식", self.audio_format)
         form.addRow("녹음 소스", self.capture_source)
         form.addRow("녹음 장치", device_row)
+        form.addRow(settings_section("전사 및 오디오 처리"))
         self.stt_mode = combo((("API", "api"), ("로컬 Whisper", "local")))
         self.stt_provider = combo((("OpenAI-compatible", "openai-compatible"), ("Deepgram", "deepgram")))
         self.stt_key = QLineEdit()
@@ -491,6 +832,7 @@ class SettingsPage(QWidget):
         form.addRow("dynaudnorm f", self.dynaudnorm_f)
         form.addRow("dynaudnorm g", self.dynaudnorm_g)
         form.addRow("추가 gain (dB)", self.gain_db)
+        form.addRow(settings_section("노트 생성 AI"))
         self.llm_provider = combo((("Gemini", "gemini"), ("Ollama", "ollama")))
         self.llm_key = QLineEdit(); self.llm_key.setEchoMode(QLineEdit.Password)
         self.llm_model = QLineEdit()
@@ -503,12 +845,13 @@ class SettingsPage(QWidget):
         form.addRow("LLM 언어", self.llm_language)
         form.addRow("Thinking level", self.thinking)
         form.addRow("Ollama URL", self.ollama_url)
-        local_ai_header = QLabel("로컬 AI")
-        local_ai_header.setStyleSheet("font-size: 17px; font-weight: 700; margin-top: 16px;")
+        local_ai_header = QLabel("기능 애드온")
+        local_ai_header.setObjectName("SectionTitle")
         form.addRow(local_ai_header)
         self.runtime_python_status = QLabel("확인 전")
         self.runtime_whisper_status = QLabel("확인 전")
         self.runtime_deepfilter_status = QLabel("확인 전")
+        self.runtime_gemini_status = QLabel("확인 전")
         self.runtime_path_status = QLabel("-")
         self.runtime_path_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.runtime_error_status = QLabel("-")
@@ -516,13 +859,15 @@ class SettingsPage(QWidget):
         form.addRow("관리형 Python", self.runtime_python_status)
         form.addRow("Whisper runtime", self.runtime_whisper_status)
         form.addRow("DeepFilterNet runtime", self.runtime_deepfilter_status)
+        form.addRow("Gemini SDK 애드온", self.runtime_gemini_status)
         form.addRow("선택 runtime 경로", self.runtime_path_status)
         form.addRow("마지막 probe 오류", self.runtime_error_status)
         runtime_actions = QGridLayout()
         runtime_buttons = (
             ("Whisper 설치", self.install_whisper_runtime),
             ("DeepFilterNet 설치", self.install_deepfilter_runtime),
-            ("둘 다 설치", self.install_all_runtime),
+            ("Gemini 애드온 설치", self.install_gemini_runtime),
+            ("전체 애드온 설치", self.install_all_runtime),
             ("상태 다시 확인", self.probe_runtime),
             ("설치 복구", self.repair_runtime),
             ("runtime 제거", self.remove_runtime),
@@ -587,6 +932,9 @@ class SettingsPage(QWidget):
         self.runtime_deepfilter_status.setText(
             f"설치됨 · {status.deepfilter_version or 'version unknown'}" if status.deepfilter_installed else "설치되지 않음"
         )
+        self.runtime_gemini_status.setText(
+            f"설치됨 · {status.gemini_version or 'version unknown'}" if status.gemini_installed else "설치되지 않음"
+        )
         self.runtime_path_status.setText(status.python_path or "-")
         self.runtime_error_status.setText(status.error or "없음")
 
@@ -599,6 +947,7 @@ class SettingsPage(QWidget):
         estimates = {
             "whisper": "약 300MB~1GB (모델 weights 별도)",
             "deepfilter": "약 1.5~3GB",
+            "gemini": "약 50~150MB",
             "all": "약 2~4GB",
         }
         message = (
@@ -617,8 +966,10 @@ class SettingsPage(QWidget):
                 return manager.install_whisper(**kwargs)
             if feature == "deepfilter":
                 return manager.install_deepfilter(**kwargs)
+            if feature == "gemini":
+                return manager.install_gemini(**kwargs)
             return manager.install_all(**kwargs)
-        self.window.run_background(f"로컬 AI {feature} 설치", "__runtime__", work)
+        self.window.run_background(f"애드온 {feature} 설치", "__runtime__", work)
 
     def install_whisper_runtime(self) -> None:
         self._install_runtime("whisper")
@@ -626,11 +977,19 @@ class SettingsPage(QWidget):
     def install_deepfilter_runtime(self) -> None:
         self._install_runtime("deepfilter")
 
+    def install_gemini_runtime(self) -> None:
+        self._install_runtime("gemini")
+
     def install_all_runtime(self) -> None:
         self._install_runtime("all")
 
     def probe_runtime(self) -> None:
-        self.window.run_background("로컬 AI 상태 확인", None, lambda _token, _emit, _job: self.window.container.runtime.probe())
+        self.window.run_background(
+            "로컬 AI 상태 확인",
+            None,
+            lambda _token, _emit, _job: self.window.container.runtime.probe(),
+            block_close=False,
+        )
 
     def repair_runtime(self) -> None:
         manager = self.window.container.runtime
@@ -655,7 +1014,15 @@ class SettingsPage(QWidget):
     def choose_workspace(self) -> None:
         value = QFileDialog.getExistingDirectory(self, "Workspace 선택", self.workspace.text())
         if value:
+            previous = self.workspace.text()
             self.workspace.setText(value)
+            if self._save(show_confirmation=False):
+                self.window.statusBar().showMessage(
+                    f"워크스페이스를 변경했습니다: {self.window.config.workspace}",
+                    7000,
+                )
+            else:
+                self.workspace.setText(previous)
 
     def refresh_devices(self) -> None:
         self.devices.clear()
@@ -677,8 +1044,15 @@ class SettingsPage(QWidget):
             self.devices.addItem(f"장치 확인 실패: {exc}", None)
 
     def save(self) -> None:
+        self._save(show_confirmation=True)
+
+    def _save(self, *, show_confirmation: bool) -> bool:
         old = self.window.config
         device: AudioDevice | None = self.devices.currentData()
+        stt_mode = str(self.stt_mode.currentData())
+        llm_provider = str(self.llm_provider.currentData())
+        stt_api_key = self.stt_key.text().strip() or old.stt.api_key
+        gemini_api_key = self.llm_key.text().strip() or old.llm.api_key
         config = AppConfig(
             workspace=Path(self.workspace.text()),
             ui_language=str(self.language.currentData()),
@@ -688,9 +1062,9 @@ class SettingsPage(QWidget):
             capture_device_name=device.name if device else None,
             capture_backend=device.backend if device else None,
             stt=STTConfig(
-                mode=self.stt_mode.currentData(),
+                mode=stt_mode,
                 api_provider=str(self.stt_provider.currentData()),
-                api_key=self.stt_key.text().strip() or old.stt.api_key,
+                api_key=stt_api_key,
                 local_model_name=str(self.stt_model.currentData()),
                 language=self.stt_language.text().strip() or None,
                 use_dynaudnorm=self.dynaudnorm.isChecked(),
@@ -699,8 +1073,8 @@ class SettingsPage(QWidget):
                 gain_db=self.gain_db.value(),
             ),
             llm=LLMConfig(
-                provider=str(self.llm_provider.currentData()),
-                api_key=self.llm_key.text().strip() or old.llm.api_key,
+                provider=llm_provider,
+                api_key=gemini_api_key,
                 model_name=self.llm_model.text().strip(),
                 thinking_level=str(self.thinking.currentData()),
                 language=self.llm_language.text().strip() or None,
@@ -708,11 +1082,15 @@ class SettingsPage(QWidget):
             ),
         )
         try:
+            config.workspace = ensure_workspace_structure(config.workspace)
             self.window.repository.save(config)
             self.window.reload_services(config)
-            QMessageBox.information(self, "설정", "설정을 저장했습니다.")
+            if show_confirmation:
+                QMessageBox.information(self, "설정", "설정을 저장했습니다.")
+            return True
         except Exception as exc:
             self.window.show_error(exc)
+            return False
 
     def install_whisper(self) -> None:
         name = str(self.stt_model.currentData())
@@ -760,26 +1138,38 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
+        root.setObjectName("AppRoot")
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(180)
+        sidebar.setFixedWidth(216)
         side_layout = QVBoxLayout(sidebar)
-        brand = QLabel("LECTURE\nAUTO")
-        brand.setStyleSheet("color: white; font-size: 20px; font-weight: 800; padding: 18px;")
+        side_layout.setContentsMargins(18, 26, 18, 20)
+        side_layout.setSpacing(4)
+        brand = QLabel("Lecture\nAuto")
+        brand.setObjectName("BrandMark")
         side_layout.addWidget(brand)
+        brand_caption = QLabel("LOCAL NOTE WORKSPACE")
+        brand_caption.setObjectName("BrandCaption")
+        side_layout.addWidget(brand_caption)
+        side_layout.addSpacing(28)
         self.nav_buttons: list[QPushButton] = []
-        for index, label in enumerate(("홈", "세션", "보관함", "설정")):
+        for index, label in enumerate(("홈", "세션 관리", "강의 보관함", "설정")):
             button = QPushButton(label)
             button.setCheckable(True)
             button.clicked.connect(lambda _checked=False, value=index: self.show_page(value))
             side_layout.addWidget(button)
             self.nav_buttons.append(button)
         side_layout.addStretch()
+        sidebar_meta = QLabel("녹음 · 전사 · 노트\n로컬 워크플로")
+        sidebar_meta.setObjectName("SidebarMeta")
+        side_layout.addWidget(sidebar_meta)
         root_layout.addWidget(sidebar)
         main = QVBoxLayout()
-        main.setContentsMargins(24, 20, 24, 16)
+        main.setContentsMargins(34, 28, 34, 20)
+        main.setSpacing(16)
         self.stack = QStackedWidget()
         self.home_page = HomePage(self)
         self.sessions_page = SessionsPage(self)
@@ -788,22 +1178,32 @@ class MainWindow(QMainWindow):
         for page in (self.home_page, self.sessions_page, self.library_page, self.settings_page):
             self.stack.addWidget(page)
         main.addWidget(self.stack, 1)
+        self.task_tray = QFrame()
+        self.task_tray.setObjectName("TaskTray")
+        task_layout = QVBoxLayout(self.task_tray)
+        task_layout.setContentsMargins(14, 10, 14, 12)
+        task_layout.setSpacing(8)
         task_header = QHBoxLayout()
         self.task_status = QLabel("준비됨")
+        self.task_status.setObjectName("StatusReady")
         self.task_progress = QProgressBar()
         self.task_progress.setRange(0, 1)
         self.task_progress.setValue(1)
         self.task_progress.setMaximumWidth(280)
-        cancel = QPushButton("모든 작업 취소")
-        cancel.clicked.connect(self.jobs.cancel_all)
+        self.task_progress.setVisible(False)
+        self.cancel_jobs_button = QPushButton("작업 취소")
+        self.cancel_jobs_button.setVisible(False)
+        self.cancel_jobs_button.clicked.connect(self.jobs.cancel_all)
         task_header.addWidget(self.task_status)
         task_header.addWidget(self.task_progress)
         task_header.addStretch()
-        task_header.addWidget(cancel)
-        main.addLayout(task_header)
+        task_header.addWidget(self.cancel_jobs_button)
+        task_layout.addLayout(task_header)
         self.task_list = QListWidget()
-        self.task_list.setMaximumHeight(90)
-        main.addWidget(self.task_list)
+        self.task_list.setMaximumHeight(82)
+        self.task_list.setVisible(False)
+        task_layout.addWidget(self.task_list)
+        main.addWidget(self.task_tray)
         root_layout.addLayout(main, 1)
         self.setCentralWidget(root)
         self.show_page(0)
@@ -841,13 +1241,25 @@ class MainWindow(QMainWindow):
             self.show_error(exc)
             return None
 
-    def run_background(self, label: str, session_id: str | None, work: Callable[..., Any]) -> None:
+    def run_background(
+        self,
+        label: str,
+        session_id: str | None,
+        work: Callable[..., Any],
+        *,
+        block_close: bool = True,
+    ) -> None:
         try:
-            job_id = self.jobs.submit(work, session_id=session_id)
+            job_id = self.jobs.submit(
+                work,
+                session_id=session_id,
+                block_close=block_close,
+            )
             self._job_labels[job_id] = label
             item = QListWidgetItem(f"{label}: 대기 중")
             item.setData(Qt.UserRole, job_id)
             self.task_list.insertItem(0, item)
+            self.task_list.setVisible(True)
             self._job_items[job_id] = item
         except Exception as exc:
             self.show_error(exc)
@@ -859,6 +1271,7 @@ class MainWindow(QMainWindow):
         if item:
             item.setText(f"{label}: {event.message or event.stage}")
         if event.total and event.completed is not None:
+            self.task_progress.setVisible(True)
             self.task_progress.setRange(0, event.total)
             self.task_progress.setValue(event.completed)
         else:
@@ -904,6 +1317,38 @@ class MainWindow(QMainWindow):
                 self.settings_page.install_deepfilter_runtime()
         return False
 
+    def ensure_provider_credentials(self, provider_type: str) -> bool:
+        if provider_type == "stt":
+            if self.config.stt.mode != "api" or self.config.stt.api_key:
+                return True
+            key = self.repository.get_secret("stt_api_key")
+            if key:
+                self.config.stt.api_key = key
+                self.container.session.stt_config.api_key = key
+                return True
+            label = "STT API"
+        elif provider_type == "llm":
+            if self.config.llm.provider != "gemini":
+                return True
+            if self.config.llm.api_key and self.container.session.llm_adapter is not None:
+                return True
+            key = self.repository.get_secret("gemini_api_key")
+            if key:
+                self.config.llm.api_key = key
+                self.reload_services(self.config)
+                return True
+            label = "Gemini API"
+        else:
+            raise ValueError(f"Unknown provider credential type: {provider_type}")
+
+        QMessageBox.information(
+            self,
+            f"{label} 키 필요",
+            f"{label} 키가 저장되어 있지 않습니다. 설정에서 키를 입력한 뒤 다시 시도하세요.",
+        )
+        self.show_page(3)
+        return False
+
     @Slot(str, object)
     def _job_failure(self, job_id: str, error: object) -> None:
         label = self._job_labels.get(job_id, job_id)
@@ -916,6 +1361,8 @@ class MainWindow(QMainWindow):
     @Slot(int)
     def _active_changed(self, count: int) -> None:
         self.task_status.setText(f"작업 중 {count}개" if count else "준비됨")
+        self.task_progress.setVisible(bool(count))
+        self.cancel_jobs_button.setVisible(bool(count))
         if not count:
             self.task_progress.setRange(0, 1)
             self.task_progress.setValue(1)
@@ -942,7 +1389,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         recording = any(row.get("status") == "recording" for row in self.container.session.store.load_all())
-        if (recording or self.jobs.active_count) and QMessageBox.question(self, "앱 종료", "녹음 또는 작업이 진행 중입니다. 종료할까요?") != QMessageBox.Yes:
+        if (recording or self.jobs.has_close_blocking_jobs) and QMessageBox.question(self, "앱 종료", "녹음 또는 작업이 진행 중입니다. 종료할까요?") != QMessageBox.Yes:
             event.ignore()
             return
         self.jobs.cancel_all()
@@ -962,20 +1409,64 @@ def set_combo(widget: QComboBox, value: object) -> None:
         widget.setCurrentIndex(index)
 
 
+def settings_section(title: str) -> QLabel:
+    label = QLabel(title)
+    label.setObjectName("SectionTitle")
+    return label
+
+
+def configure_session_table(table: QTableWidget) -> None:
+    table.setAlternatingRowColors(True)
+    table.setShowGrid(False)
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SingleSelection)
+    table.verticalHeader().setVisible(False)
+    table.verticalHeader().setDefaultSectionSize(44)
+    header = table.horizontalHeader()
+    header.setHighlightSections(False)
+    header.setSectionResizeMode(QHeaderView.Stretch)
+    header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+    header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+
+
+def format_status(value: object) -> str:
+    raw = str(value or "")
+    return {
+        "idle": "준비",
+        "created": "준비",
+        "recording": "녹음 중",
+        "recorded": "녹음 완료",
+        "transcribing": "전사 중",
+        "transcribed": "전사 완료",
+        "summarizing": "노트 생성 중",
+        "completed": "완료",
+        "failed": "실패",
+    }.get(raw, raw or "-")
+
+
 def fill_session_table(table: QTableWidget, rows: list[dict[str, Any]]) -> None:
     table.setRowCount(len(rows))
     for row_index, row in enumerate(rows):
         for column, key in enumerate(("session_id", "date", "title", "course", "status")):
-            table.setItem(row_index, column, QTableWidgetItem(str(row.get(key) or "")))
+            value = format_status(row.get(key)) if key == "status" else str(row.get(key) or "")
+            item = QTableWidgetItem(value)
+            if column in (1, 4):
+                item.setTextAlignment(Qt.AlignCenter)
+            table.setItem(row_index, column, item)
 
 
 def main() -> None:
     application = QApplication(sys.argv)
     application.setApplicationName("Lecture Auto")
     application.setOrganizationName("Lecture Auto")
+    icon_path = Path(__file__).resolve().parent / "assets" / "app-icon.png"
+    if icon_path.exists():
+        application.setWindowIcon(QIcon(str(icon_path)))
+    application.setStyle("Fusion")
     application.setStyleSheet(APP_STYLE)
     repository = ConfigRepository()
-    config = repository.load()
+    config = repository.load(load_secrets=False)
     smoke_test = os.environ.get("LECTURE_AUTO_SMOKE_TEST") == "1"
     if not repository.exists() and not smoke_test:
         onboarding = OnboardingDialog(config)

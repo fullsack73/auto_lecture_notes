@@ -4,12 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build/macos}"
-SOURCE="$ROOT/src/lecture_auto/gui/app.py"
+SOURCE="$ROOT/src/lecture_auto/gui/LectureAuto.py"
 WORKER="$ROOT/src/lecture_auto/local_ai_worker.py"
+GEMINI_WORKER="$ROOT/src/lecture_auto/gemini_addon_worker.py"
+PACKAGE_INIT="$ROOT/src/lecture_auto/__init__.py"
+LLM_ADAPTER="$ROOT/src/lecture_auto/llm_adapter.py"
+LLM_CONFIG="$ROOT/src/lecture_auto/llm_config.py"
 UV="$ROOT/.venv/bin/uv"
-# Nuitka derives the bundle directory from app.py; the installed copy below
-# still receives the user-facing Lecture Auto.app name.
-APP="$BUILD_DIR/app.app"
+ICON_PNG="$ROOT/src/lecture_auto/gui/assets/app-icon.png"
+ICON_ICNS="$ROOT/src/lecture_auto/gui/assets/LectureAuto.icns"
+APP="$BUILD_DIR/LectureAuto.app"
 INSTALL_APP="/Applications/Lecture Auto.app"
 
 if [[ "$(uname -m)" != "arm64" ]]; then
@@ -39,16 +43,21 @@ PREVIOUS_KB="$(du -sk "$BUILD_DIR" 2>/dev/null | awk '{print $1}' || print 0)"
 rm -rf "$BUILD_DIR/app.build" "$BUILD_DIR/app.dist" "$BUILD_DIR/app.app" \
   "$BUILD_DIR/LectureAuto.build" "$BUILD_DIR/LectureAuto.dist" "$BUILD_DIR/LectureAuto.app"
 
+# Nuitka's bundled ccache 4.2.1 is x86_64-only on this machine and causes
+# xcrun to launch under Rosetta against arm64 Command Line Tools.
 "$PYTHON" -m nuitka "$SOURCE" \
   --enable-plugin=pyside6 \
   --standalone \
   --macos-create-app-bundle \
   --macos-target-arch=arm64 \
   --macos-app-name="Lecture Auto" \
+  --macos-signed-app-name="com.anarchytoast.lectureauto" \
   --macos-app-version=0.1.0 \
+  --macos-app-icon="$ICON_ICNS" \
   --macos-app-protected-resource="NSMicrophoneUsageDescription:Lecture Auto records lecture audio selected by the user." \
   --output-dir="$BUILD_DIR" \
   --output-filename=LectureAuto \
+  --output-folder-name=LectureAuto \
   --disable-cache=ccache \
   --module-parameter=torch-disable-jit=yes \
   --no-prefer-source-code \
@@ -58,8 +67,15 @@ rm -rf "$BUILD_DIR/app.build" "$BUILD_DIR/app.dist" "$BUILD_DIR/app.app" \
   --nofollow-import-to=ctranslate2 \
   --nofollow-import-to=df \
   --nofollow-import-to=onnxruntime \
+  --nofollow-import-to=google.genai \
+  --nofollow-import-to=google.api_core \
   --include-data-file="$WORKER=local_ai_worker.py" \
+  --include-data-file="$GEMINI_WORKER=gemini_addon_worker.py" \
+  --include-data-file="$PACKAGE_INIT=addon_source/lecture_auto/__init__.py" \
+  --include-data-file="$LLM_ADAPTER=addon_source/lecture_auto/llm_adapter.py" \
+  --include-data-file="$LLM_CONFIG=addon_source/lecture_auto/llm_config.py" \
   --include-data-file="$UV=bin/uv" \
+  --include-data-file="$ICON_PNG=assets/app-icon.png" \
   --report="$BUILD_DIR/nuitka-report.xml" \
   --assume-yes-for-downloads
 
@@ -72,7 +88,7 @@ fi
   --app "$APP" \
   --report "$BUILD_DIR/nuitka-report.xml"
 
-codesign --force --deep --sign - "$APP"
+codesign --force --deep --sign - --identifier "com.anarchytoast.lectureauto" "$APP"
 
 FINISHED_AT="$(date +%s)"
 APP_KB="$(du -sk "$APP" | awk '{print $1}')"

@@ -50,6 +50,22 @@ def test_gemini_adapter_missing_api_key_raises_error() -> None:
         GeminiLLMAdapter(config)
 
 
+def test_gemini_adapter_can_delegate_to_post_install_addon() -> None:
+    class FakeRuntime:
+        def run_feature(self, feature, request, **kwargs):
+            assert feature == "gemini"
+            assert request["action"] == "gemini_refine_transcript"
+            return {"text": "add-on result"}
+
+    adapter = GeminiLLMAdapter(
+        LLMConfig(api_key="valid-key"),
+        runtime_manager=FakeRuntime(),
+        use_addon=True,
+    )
+
+    assert adapter.refine_transcript("raw") == "add-on result"
+
+
 def test_gemini_adapter_refine_transcript_empty_text() -> None:
     config = LLMConfig(api_key="valid-key")
     with patch("google.genai.Client"):

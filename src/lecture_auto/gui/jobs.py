@@ -52,16 +52,27 @@ class JobController(QObject):
         self.pool = QThreadPool.globalInstance()
         self._tokens: dict[str, CancellationToken] = {}
         self._sessions: dict[str, str | None] = {}
+        self._blocks_close: dict[str, bool] = {}
         self._workers: dict[str, Worker] = {}
 
     @property
     def active_count(self) -> int:
         return len(self._tokens)
 
+    @property
+    def has_close_blocking_jobs(self) -> bool:
+        return any(self._blocks_close.values())
+
     def is_session_busy(self, session_id: str) -> bool:
         return session_id in self._sessions.values()
 
-    def submit(self, work: JobCallable, *, session_id: str | None = None) -> str:
+    def submit(
+        self,
+        work: JobCallable,
+        *,
+        session_id: str | None = None,
+        block_close: bool = True,
+    ) -> str:
         if session_id and self.is_session_busy(session_id):
             raise RuntimeError(f"Session '{session_id}' already has an active task.")
         job_id = uuid.uuid4().hex
@@ -74,6 +85,7 @@ class JobController(QObject):
         worker.signals.failed.connect(self._finish)
         self._tokens[job_id] = token
         self._sessions[job_id] = session_id
+        self._blocks_close[job_id] = block_close
         self._workers[job_id] = worker
         self.active_changed.emit(self.active_count)
         self.pool.start(worker)
@@ -92,5 +104,6 @@ class JobController(QObject):
     def _finish(self, job_id: str, _result: object) -> None:
         self._tokens.pop(job_id, None)
         self._sessions.pop(job_id, None)
+        self._blocks_close.pop(job_id, None)
         self._workers.pop(job_id, None)
         self.active_changed.emit(self.active_count)

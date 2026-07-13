@@ -612,10 +612,30 @@ class LLMProviderAdapter(Protocol):
 class GeminiLLMAdapter:
     """Implementation of Gemini API for transcript refinement."""
 
-    def __init__(self, config: LLMConfig) -> None:
+    def __init__(
+        self,
+        config: LLMConfig,
+        *,
+        runtime_manager: Any | None = None,
+        use_addon: bool | None = None,
+    ) -> None:
         if not config.api_key or not config.api_key.strip():
             raise LLMConfigError("Google API key is required.")
         self.config = config
+        self._addon = None
+
+        if use_addon is None:
+            use_addon = "__compiled__" in globals()
+        if use_addon:
+            from lecture_auto.gemini_addon import GeminiAddonAdapter
+            from lecture_auto.local_runtime import LocalRuntimeManager
+
+            self._addon = GeminiAddonAdapter(
+                config,
+                runtime_manager or LocalRuntimeManager(),
+            )
+            self.client = None
+            return
 
         try:
             from google import genai
@@ -626,6 +646,22 @@ class GeminiLLMAdapter:
 
         self.client = genai.Client(api_key=self.config.api_key)
 
+    def _call_addon(self, method: str, *args: Any, **kwargs: Any) -> str:
+        if self._addon is None:
+            raise RuntimeError("Gemini add-on adapter is not active.")
+        try:
+            return str(getattr(self._addon, method)(*args, **kwargs))
+        except Exception as exc:
+            from lecture_auto.local_runtime import LocalRuntimeError, LocalRuntimeMissingError
+
+            if isinstance(exc, LocalRuntimeMissingError):
+                raise LLMConfigError(
+                    "Gemini add-on is not installed. Open Settings > Add-ons and install Gemini."
+                ) from exc
+            if isinstance(exc, LocalRuntimeError):
+                raise LLMTransientNetworkError(f"Gemini add-on failed: {exc}") from exc
+            raise
+
     @staticmethod
     def _normalize_model_name(model_name: str) -> str:
         """Normalizes common Gemini model aliases to API-accepted IDs."""
@@ -635,12 +671,21 @@ class GeminiLLMAdapter:
         """Refines the transcript in chunks using the Gemini model."""
         if not raw_text or not raw_text.strip():
             return raw_text
+        if self._addon is not None:
+            return self._call_addon(
+                "refine_transcript",
+                raw_text,
+                context_topic=context_topic,
+            )
 
         try:
             from google.api_core.exceptions import PermissionDenied, DeadlineExceeded  # type: ignore
         except ImportError:
-            PermissionDenied = Exception  # type: ignore
-            DeadlineExceeded = Exception  # type: ignore
+            class PermissionDenied(Exception):  # type: ignore[no-redef]
+                pass
+
+            class DeadlineExceeded(Exception):  # type: ignore[no-redef]
+                pass
 
         try:
             from google.genai import types  # type: ignore
@@ -713,12 +758,23 @@ class GeminiLLMAdapter:
         """Generates structured notes through provider-neutral JSON data."""
         if not transcript or not transcript.strip():
             return transcript
+        if self._addon is not None:
+            return self._call_addon(
+                "generate_notes",
+                transcript,
+                template,
+                context_topic=context_topic,
+                material_path=material_path,
+            )
 
         try:
             from google.api_core.exceptions import PermissionDenied, DeadlineExceeded  # type: ignore
         except ImportError:
-            PermissionDenied = Exception  # type: ignore
-            DeadlineExceeded = Exception  # type: ignore
+            class PermissionDenied(Exception):  # type: ignore[no-redef]
+                pass
+
+            class DeadlineExceeded(Exception):  # type: ignore[no-redef]
+                pass
 
         try:
             from google.genai import types  # type: ignore

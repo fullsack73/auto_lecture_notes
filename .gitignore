@@ -1,9 +1,31 @@
-.venv/*
-src/lecture_auto.egg-info/
-src/lecture_auto/__pycache__/
-tests/__pycache__/*
+# Python environments and bytecode
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Test, type-checker, and linter caches
+.pytest_cache/
 .github/*
 .mypy_cache/
-.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and packaging artifacts
+build/
+dist/
+*.build/
+*.dist/
+*.app/
+*.dmg
+*.pkg
+pysidedeploy.spec
+
+# macOS metadata
+.DS_Store
+
 recordings/
 scripts/

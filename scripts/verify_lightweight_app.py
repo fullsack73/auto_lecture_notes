@@ -8,8 +8,26 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-BANNED = ("torch", "torchaudio", "faster_whisper", "ctranslate2", "deepfilternet", "onnxruntime", "df")
-FILE_TOKENS = ("torch", "torchaudio", "faster_whisper", "ctranslate2", "deepfilter", "onnxruntime")
+BANNED = (
+    "torch",
+    "torchaudio",
+    "faster_whisper",
+    "ctranslate2",
+    "deepfilternet",
+    "onnxruntime",
+    "df",
+    "google.genai",
+    "google.api_core",
+)
+FILE_TOKENS = (
+    "torch",
+    "torchaudio",
+    "faster_whisper",
+    "ctranslate2",
+    "deepfilter",
+    "onnxruntime",
+    "google_genai",
+)
 
 
 def banned_name(name: str) -> bool:
