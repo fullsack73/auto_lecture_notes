@@ -6,6 +6,17 @@ A CLI/TUI tool that lets your computer attend class for you.
 
 Lecture Auto records lecture audio, transcribes it, refines the transcript, and generates structured study notes. Instead of taking notes manually in real time, you can hand off the `recording -> transcript -> structured notes` flow to the program.
 
+## Project Documentation
+
+The repository follows a docs-first working agreement based on [Austin's Docs Architecture](https://github.com/EunHyeokJung/austin-docs-architecture):
+
+- [Agent working agreement](AGENTS.md)
+- [Folder architecture](docs/01-folder-architecture.md)
+- [Technical specs](docs/02-specs.md)
+- [Product plan](docs/03-product-plan.md)
+- [TODO index](docs/todo/00-todo-list.md)
+- [Work reports](docs/reports/)
+
 ## What It Does
 
 - Create and manage lecture sessions
