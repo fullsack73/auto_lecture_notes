@@ -1523,9 +1523,6 @@ class MainWindow(QMainWindow):
         brand = QLabel("Lecture\nAuto")
         brand.setObjectName("BrandMark")
         side_layout.addWidget(brand)
-        brand_caption = QLabel("LOCAL NOTE WORKSPACE")
-        brand_caption.setObjectName("BrandCaption")
-        side_layout.addWidget(brand_caption)
         side_layout.addSpacing(28)
         self.nav_buttons: list[QPushButton] = []
         for index, label in enumerate(("홈", "세션 관리", "강의 보관함", "설정")):
@@ -1535,9 +1532,6 @@ class MainWindow(QMainWindow):
             side_layout.addWidget(button)
             self.nav_buttons.append(button)
         side_layout.addStretch()
-        sidebar_meta = QLabel("녹음 · 전사 · 노트\n로컬 워크플로")
-        sidebar_meta.setObjectName("SidebarMeta")
-        side_layout.addWidget(sidebar_meta)
         root_layout.addWidget(sidebar)
         main = QVBoxLayout()
         main.setContentsMargins(34, 28, 34, 20)
