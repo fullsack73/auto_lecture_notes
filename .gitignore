@@ -29,3 +29,6 @@ pysidedeploy.spec
 
 recordings/
 scripts/
+!scripts/
+scripts/*
+!scripts/prepare_ffmpeg_macos.sh

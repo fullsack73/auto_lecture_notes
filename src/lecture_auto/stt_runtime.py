@@ -8,6 +8,8 @@ import os
 import tempfile
 import math
 
+from lecture_auto.capture_runtime import resolve_ffmpeg_bin, resolve_ffprobe_bin
+
 
 class STTRuntimeError(RuntimeError):
     """Base class for transcription runtime failures."""
@@ -84,7 +86,7 @@ def _get_audio_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
             [
-                "ffprobe",
+                resolve_ffprobe_bin(),
                 "-v",
                 "error",
                 "-show_entries",
@@ -116,7 +118,7 @@ def _split_audio(file_path: str, chunk_duration: int = 600) -> list[str]:
         try:
             subprocess.run(
                 [
-                    "ffmpeg",
+                    resolve_ffmpeg_bin(),
                     "-y",
                     "-i",
                     file_path,

@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from lecture_auto.capture_runtime import resolve_ffmpeg_bin
+
 
 class AudioAmplificationError(RuntimeError):
     """Raised when preparing amplified audio input fails."""
@@ -133,7 +135,7 @@ def deepfilter_audio_input(
     *,
     audio_path: str,
     deepfilter_bin: str = "deepFilter",
-    ffmpeg_bin: str = "ffmpeg",
+    ffmpeg_bin: str | None = None,
 ) -> Iterator[str]:
     """Yield a noise-reduced audio path using deepfilternet."""
     original_source = Path(audio_path)
@@ -148,6 +150,7 @@ def deepfilter_audio_input(
         output_dir.mkdir()
 
         source = source_dir / f"{original_source.stem}_src.wav"
+        ffmpeg_bin = ffmpeg_bin or resolve_ffmpeg_bin()
         ffmpeg_cmd = [
             ffmpeg_bin, "-y", "-v", "warning",
             "-i", str(original_source),
@@ -222,7 +225,7 @@ def amplified_audio_input(
     dynaudnorm_f: int | None = None,
     dynaudnorm_g: int | None = None,
     gain_db: float | None = None,
-    ffmpeg_bin: str = "ffmpeg",
+    ffmpeg_bin: str | None = None,
 ) -> Iterator[str]:
     """Yield an audio path suitable for STT, amplifying input when needed.
 
@@ -251,6 +254,7 @@ def amplified_audio_input(
 
 
     with tempfile.TemporaryDirectory(prefix="lecture_auto_amp_") as tmp_dir:
+        ffmpeg_bin = ffmpeg_bin or resolve_ffmpeg_bin()
         output_path = Path(tmp_dir) / "amplified.wav"
         command = [
             ffmpeg_bin,

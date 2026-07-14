@@ -11,6 +11,9 @@ PACKAGE_INIT="$ROOT/src/lecture_auto/__init__.py"
 LLM_ADAPTER="$ROOT/src/lecture_auto/llm_adapter.py"
 LLM_CONFIG="$ROOT/src/lecture_auto/llm_config.py"
 UV="$ROOT/.venv/bin/uv"
+FFMPEG_ROOT="$ROOT/build/dependencies/ffmpeg-lgpl"
+FFMPEG="$FFMPEG_ROOT/bin/ffmpeg"
+FFPROBE="$FFMPEG_ROOT/bin/ffprobe"
 ICON_PNG="$ROOT/src/lecture_auto/gui/assets/app-icon.png"
 ICON_ICNS="$ROOT/src/lecture_auto/gui/assets/LectureAuto.icns"
 APP="$BUILD_DIR/LectureAuto.app"
@@ -34,6 +37,13 @@ fi
 
 if [[ "$($PYTHON -c 'import platform; print(platform.machine())')" != "arm64" ]]; then
   print -u2 "Python is not arm64: $PYTHON"
+  exit 2
+fi
+
+"$ROOT/scripts/prepare_ffmpeg_macos.sh"
+
+if [[ ! -x "$FFMPEG" || ! -x "$FFPROBE" ]]; then
+  print -u2 "Prepared FFmpeg tools not found under: $FFMPEG_ROOT/bin"
   exit 2
 fi
 
@@ -75,6 +85,9 @@ rm -rf "$BUILD_DIR/app.build" "$BUILD_DIR/app.dist" "$BUILD_DIR/app.app" \
   --include-data-file="$LLM_ADAPTER=addon_source/lecture_auto/llm_adapter.py" \
   --include-data-file="$LLM_CONFIG=addon_source/lecture_auto/llm_config.py" \
   --include-data-file="$UV=bin/uv" \
+  --include-data-file="$FFMPEG=bin/ffmpeg" \
+  --include-data-file="$FFPROBE=bin/ffprobe" \
+  --include-data-dir="$FFMPEG_ROOT/licenses=licenses/ffmpeg" \
   --include-data-file="$ICON_PNG=assets/app-icon.png" \
   --report="$BUILD_DIR/nuitka-report.xml" \
   --assume-yes-for-downloads
@@ -83,6 +96,8 @@ if [[ ! -x "$APP/Contents/MacOS/LectureAuto" ]]; then
   print -u2 "Build completed without expected app executable: $APP"
   exit 3
 fi
+
+chmod +x "$APP/Contents/MacOS/bin/ffmpeg" "$APP/Contents/MacOS/bin/ffprobe"
 
 "$PYTHON" "$ROOT/scripts/verify_lightweight_app.py" \
   --app "$APP" \

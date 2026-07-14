@@ -18,6 +18,7 @@ from lecture_auto.capture_runtime import (
     CaptureRuntimeAdapter,
     CaptureRuntimeError,
     NoopCaptureRuntimeAdapter,
+    resolve_ffmpeg_bin,
 )
 from lecture_auto.stt_config import STTConfig
 from lecture_auto.tasking import CancellationToken, ProgressCallback, report_progress
@@ -823,7 +824,7 @@ class SessionService:
                 list_file_path = f.name
                 
             cmd = [
-                "ffmpeg",
+                resolve_ffmpeg_bin(),
                 "-y",
                 "-f", "concat",
                 "-safe", "0",

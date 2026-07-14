@@ -65,12 +65,36 @@ def verify(app: Path, report: Path) -> dict[str, object]:
     architecture = subprocess.check_output(["file", str(executable)], text=True).strip()
     if "arm64" not in architecture:
         raise RuntimeError(f"App executable is not arm64: {architecture}")
+    media_tools = {}
+    for name in ("ffmpeg", "ffprobe"):
+        tool = app / "Contents" / "MacOS" / "bin" / name
+        if not tool.is_file():
+            raise RuntimeError(f"Bundled media tool not found: {tool}")
+        tool_architecture = subprocess.check_output(["file", str(tool)], text=True).strip()
+        if "arm64" not in tool_architecture:
+            raise RuntimeError(f"Bundled media tool is not arm64: {tool_architecture}")
+        media_tools[name] = str(tool.relative_to(app))
+    ffmpeg = app / "Contents" / "MacOS" / "bin" / "ffmpeg"
+    ffmpeg_version = subprocess.check_output([str(ffmpeg), "-version"], text=True)
+    if "--disable-gpl" not in ffmpeg_version or "--disable-nonfree" not in ffmpeg_version:
+        raise RuntimeError("Bundled FFmpeg is not the expected LGPL-compatible build")
+    if "--enable-libmp3lame" not in ffmpeg_version:
+        raise RuntimeError("Bundled FFmpeg does not support MP3 encoding")
+    devices = subprocess.run(
+        [str(ffmpeg), "-hide_banner", "-devices"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if "avfoundation" not in devices.stdout + devices.stderr:
+        raise RuntimeError("Bundled FFmpeg does not support AVFoundation capture")
     return {
         "app": str(app),
         "size_bytes": size_bytes,
         "architecture": architecture,
         "banned_files": bad_files,
         "banned_modules": included_modules,
+        "bundled_media_tools": media_tools,
     }
 
 

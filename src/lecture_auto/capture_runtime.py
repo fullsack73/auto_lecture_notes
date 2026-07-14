@@ -47,6 +47,27 @@ class AudioDevice:
     backend: str
 
 
+def resolve_bundled_media_tool(name: str) -> str:
+    executable = f"{name}.exe" if sys.platform == "win32" else name
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    candidates = (
+        bundle_root / "bin" / executable,
+        Path(__file__).resolve().parent / "bin" / executable,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return executable
+
+
+def resolve_ffmpeg_bin() -> str:
+    return resolve_bundled_media_tool("ffmpeg")
+
+
+def resolve_ffprobe_bin() -> str:
+    return resolve_bundled_media_tool("ffprobe")
+
+
 class CaptureRuntimeAdapter(Protocol):
     def list_devices(self) -> list[AudioDevice]:
         ...
@@ -123,16 +144,7 @@ class FFmpegCaptureRuntimeAdapter:
 
     @staticmethod
     def _resolve_ffmpeg_bin() -> str:
-        executable = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
-        bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-        candidates = (
-            bundle_root / "bin" / executable,
-            Path(__file__).resolve().parent / "bin" / executable,
-        )
-        for candidate in candidates:
-            if candidate.is_file():
-                return str(candidate)
-        return executable
+        return resolve_ffmpeg_bin()
 
     def _default_backend(self) -> str:
         if self.platform == "darwin":

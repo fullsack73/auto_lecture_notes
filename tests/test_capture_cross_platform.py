@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from lecture_auto.capture_runtime import AudioDevice, FFmpegCaptureRuntimeAdapter
+from lecture_auto.capture_runtime import (
+    AudioDevice,
+    FFmpegCaptureRuntimeAdapter,
+    resolve_bundled_media_tool,
+)
 
 
 def test_platform_capture_commands() -> None:
@@ -30,3 +34,14 @@ def test_system_audio_requires_matching_device() -> None:
             assert "system audio" in str(exc).lower()
         else:
             raise AssertionError("Expected missing system-audio device error")
+
+
+def test_media_tool_resolver_prefers_app_bundle(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "LectureAuto"
+    executable.write_text("")
+    bundled_ffmpeg = tmp_path / "bin" / "ffmpeg"
+    bundled_ffmpeg.parent.mkdir()
+    bundled_ffmpeg.write_text("")
+    monkeypatch.setattr("lecture_auto.capture_runtime.sys.executable", str(executable))
+
+    assert resolve_bundled_media_tool("ffmpeg") == str(bundled_ffmpeg)

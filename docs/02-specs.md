@@ -12,6 +12,7 @@
 - **GUI**: PySide6
 - **테스트**: pytest, 선택적으로 pytest-qt
 - **플랫폼**: macOS 녹음/앱 배포를 우선 지원하며 Windows 배포 설정도 유지한다.
+- **macOS 미디어 도구**: 배포 앱은 ARM64 FFmpeg/FFprobe를 `Contents/MacOS/bin`에 포함한다. 빌드 스크립트는 고정된 소스와 checksum으로 GPL/nonfree 기능을 끈 바이너리를 준비하고 AVFoundation, MP3, 외부 Homebrew dylib 비의존성을 검증한다.
 
 ## B. 계층별 구현 규칙
 
@@ -27,7 +28,7 @@
 
 - STT는 API(`Deepgram`, OpenAI-compatible)와 local(`faster-whisper`)을 adapter로 분리한다.
 - LLM은 `gemini`와 `ollama` provider를 공통 `LLMProviderAdapter` 경계로 제공한다.
-- 녹음은 FFmpeg/AVFoundation 등 플랫폼 실행 세부사항을 `capture_runtime.py` 안에 둔다.
+- 녹음은 FFmpeg/AVFoundation 등 플랫폼 실행 세부사항을 `capture_runtime.py` 안에 둔다. 런타임은 앱에 포함된 `bin/ffmpeg`와 `bin/ffprobe`를 시스템 `PATH`보다 우선한다.
 - 외부 SDK import는 adapter/runtime 내부에서 지연 import할 수 있으며, 가벼운 명령과 테스트 import를 불필요하게 막지 않는다.
 - provider 예외는 서비스/CLI가 처리할 수 있는 프로젝트 예외로 변환한다.
 

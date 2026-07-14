@@ -6,7 +6,10 @@ from threading import Event
 from pathlib import Path
 from unittest.mock import call, patch
 
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCloseEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton
 
 from lecture_auto.application import AppConfig, ConfigRepository
 from lecture_auto.capture_runtime import AudioDevice
@@ -55,6 +58,47 @@ def test_main_window_navigates_and_shows_created_session(tmp_path: Path, qtbot) 
     assert window.stack.currentWidget() is window.sessions_page
     assert window.sessions_page.current_session_id == "week-01"
     assert window.sessions_page.detail_title.text() == "Intro"
+
+
+def test_session_actions_follow_recording_to_notes_workflow(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+
+    stage_titles = [
+        label.text()
+        for label in window.sessions_page.findChildren(QLabel)
+        if label.objectName() == "WorkflowTitle"
+    ]
+    buttons = {
+        button.text().replace("  →", ""): button
+        for button in window.sessions_page.action_buttons
+    }
+
+    assert stage_titles == ["녹음·오디오", "전사", "복습 노트"]
+    assert {
+        "정보 수정",
+        "세션 삭제",
+        "녹음 시작",
+        "녹음 중지",
+        "오디오 파일 가져오기",
+        "볼륨 보정",
+        "노이즈 제거",
+        "전사 시작",
+        "전사문 다듬기",
+        "강의 자료 첨부",
+        "노트 미리보기",
+        "노트 저장",
+        "녹음 폴더 열기",
+        "전사문 폴더 열기",
+        "노트 폴더 열기",
+    } == set(buttons)
+    assert buttons["녹음 시작"].objectName() == "WorkflowPrimary"
+    assert buttons["전사 시작"].objectName() == "WorkflowAccent"
+    assert buttons["노트 저장"].objectName() == "WorkflowAccent"
+    assert all(
+        buttons[label].objectName() == "FolderLink"
+        for label in ("녹음 폴더 열기", "전사문 폴더 열기", "노트 폴더 열기")
+    )
+    assert all(not button.isEnabled() for button in buttons.values())
 
 
 def test_main_window_starts_with_capture_runtime_metadata(tmp_path: Path, qtbot) -> None:
@@ -126,6 +170,49 @@ def test_library_folder_buttons_disable_without_sessions(tmp_path: Path, qtbot) 
     assert all(not button.isEnabled() for button in window.library_page.open_buttons)
 
 
+def test_session_table_headers_sort_and_preserve_selection(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    sessions = (
+        ("session-z", "2026-07-12", "Zebra", "Biology"),
+        ("session-a", "2026-07-10", "alpha", "Chemistry"),
+        ("session-b", "2026-07-11", "Beta", "Art"),
+    )
+    for session_id, session_date, title, course in sessions:
+        window.container.session.session_create(session_id, session_date, title, course)
+
+    window.show_page(2)
+    window.show()
+    qtbot.wait(20)
+    table = window.library_page.table
+    header = table.horizontalHeader()
+
+    def values(column: int) -> list[str]:
+        return [table.item(row, column).text() for row in range(table.rowCount())]
+
+    def click_header(column: int) -> None:
+        position = QPoint(
+            header.sectionPosition(column) + header.sectionSize(column) // 2,
+            header.height() // 2,
+        )
+        QTest.mouseClick(header.viewport(), Qt.LeftButton, Qt.NoModifier, position)
+        qtbot.wait(10)
+
+    click_header(2)
+    assert values(2) == ["alpha", "Beta", "Zebra"]
+    click_header(2)
+    assert values(2) == ["Zebra", "Beta", "alpha"]
+
+    click_header(3)
+    assert values(3) == ["Art", "Biology", "Chemistry"]
+    chemistry_row = values(0).index("session-a")
+    table.selectRow(chemistry_row)
+
+    window.library_page.refresh()
+
+    assert values(3) == ["Art", "Biology", "Chemistry"]
+    assert table.item(table.currentRow(), 0).text() == "session-a"
+
+
 def test_settings_lists_matching_capture_devices(tmp_path: Path, qtbot) -> None:
     window = make_window(tmp_path, qtbot)
     window.container.session.runtime_adapter.list_devices = lambda: [
@@ -137,6 +224,83 @@ def test_settings_lists_matching_capture_devices(tmp_path: Path, qtbot) -> None:
 
     assert window.settings_page.devices.count() == 1
     assert window.settings_page.devices.currentText() == "Built-in microphone"
+
+
+def test_settings_groups_runtime_and_model_actions(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    page = window.settings_page
+    panels = [
+        panel
+        for panel in page.findChildren(QFrame)
+        if panel.objectName() == "SettingsActionPanel"
+    ]
+    button_labels = {button.text() for button in page.findChildren(QPushButton)}
+
+    assert len(panels) == 2
+    assert page.runtime_feature.count() == 4
+    assert {
+        "선택 항목 설치",
+        "상태 다시 확인",
+        "설치 복구",
+        "외부 Python",
+        "Runtime 제거",
+        "모델 받기",
+        "모델 삭제",
+        "연결 확인",
+    } <= button_labels
+    assert {
+        "Whisper 설치",
+        "DeepFilterNet 설치",
+        "Gemini 애드온 설치",
+        "전체 애드온 설치",
+    }.isdisjoint(button_labels)
+    styled_actions = {
+        button.text(): button.objectName()
+        for button in page.findChildren(QPushButton)
+        if button.text() in {"설치 복구", "외부 Python", "Runtime 제거", "모델 삭제"}
+    }
+    assert styled_actions == {
+        "설치 복구": "SettingsLink",
+        "외부 Python": "SettingsLink",
+        "Runtime 제거": "SettingsDangerLink",
+        "모델 삭제": "SettingsDangerLink",
+    }
+
+    with patch.object(page, "_install_runtime") as install_runtime:
+        page.runtime_feature.setCurrentIndex(page.runtime_feature.findData("deepfilter"))
+        page.install_selected_runtime()
+
+    install_runtime.assert_called_once_with("deepfilter")
+
+
+def test_settings_disable_fields_for_inactive_stt_and_llm_providers(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    page = window.settings_page
+    page._runtime_probe_requested = True
+    page.stt_key.setText("keep-stt-key")
+    page.llm_key.setText("keep-llm-key")
+
+    page.stt_mode.setCurrentIndex(page.stt_mode.findData("local"))
+
+    assert all(not control.isEnabled() for control in page._stt_api_controls)
+    assert all(control.isEnabled() for control in page._stt_local_controls)
+    assert page.stt_key.text() == "keep-stt-key"
+
+    page.stt_mode.setCurrentIndex(page.stt_mode.findData("api"))
+
+    assert all(control.isEnabled() for control in page._stt_api_controls)
+    assert all(not control.isEnabled() for control in page._stt_local_controls)
+
+    page.llm_provider.setCurrentIndex(page.llm_provider.findData("ollama"))
+
+    assert all(not control.isEnabled() for control in page._gemini_controls)
+    assert all(control.isEnabled() for control in page._ollama_controls)
+    assert page.llm_key.text() == "keep-llm-key"
+
+    page.llm_provider.setCurrentIndex(page.llm_provider.findData("gemini"))
+
+    assert all(control.isEnabled() for control in page._gemini_controls)
+    assert all(not control.isEnabled() for control in page._ollama_controls)
 
 
 def test_workspace_picker_applies_immediately_and_persists(tmp_path: Path, qtbot, monkeypatch) -> None:
@@ -222,12 +386,14 @@ def test_local_ai_section_shows_uninstalled_features(tmp_path: Path, qtbot) -> N
     assert window.settings_page.runtime_whisper_status.text() == "설치되지 않음"
     assert window.settings_page.runtime_deepfilter_status.text() == "설치되지 않음"
     assert window.settings_page.runtime_gemini_status.text() == "설치되지 않음"
-    labels = {button.text() for button in window.settings_page.findChildren(type(window.nav_buttons[0]))}
+    labels = {button.text() for button in window.settings_page.findChildren(QPushButton)}
     assert {
-        "Whisper 설치",
-        "DeepFilterNet 설치",
-        "Gemini 애드온 설치",
-        "전체 애드온 설치",
+        "선택 항목 설치",
+        "상태 다시 확인",
         "설치 복구",
-        "runtime 제거",
+        "Runtime 제거",
     } <= labels
+    assert [
+        window.settings_page.runtime_feature.itemData(index)
+        for index in range(window.settings_page.runtime_feature.count())
+    ] == ["whisper", "deepfilter", "gemini", "all"]
