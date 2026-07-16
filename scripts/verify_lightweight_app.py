@@ -41,6 +41,19 @@ def verify(app: Path, report: Path) -> dict[str, object]:
     executable = app / "Contents" / "MacOS" / "LectureAuto"
     if not executable.is_file():
         raise RuntimeError(f"App executable not found: {executable}")
+    note_template = (
+        app
+        / "Contents"
+        / "MacOS"
+        / "lecture_auto"
+        / "templates"
+        / "structured-notes.md"
+    )
+    if not note_template.is_file():
+        raise RuntimeError(f"Bundled note template not found: {note_template}")
+    note_template_text = note_template.read_text(encoding="utf-8")
+    if "## Topic Overview" not in note_template_text:
+        raise RuntimeError(f"Bundled note template is invalid: {note_template}")
 
     bad_files = []
     for path in app.rglob("*"):
@@ -95,6 +108,7 @@ def verify(app: Path, report: Path) -> dict[str, object]:
         "banned_files": bad_files,
         "banned_modules": included_modules,
         "bundled_media_tools": media_tools,
+        "bundled_note_template": str(note_template.relative_to(app)),
     }
 
 

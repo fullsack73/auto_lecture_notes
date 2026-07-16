@@ -10,6 +10,7 @@ GEMINI_WORKER="$ROOT/src/lecture_auto/gemini_addon_worker.py"
 PACKAGE_INIT="$ROOT/src/lecture_auto/__init__.py"
 LLM_ADAPTER="$ROOT/src/lecture_auto/llm_adapter.py"
 LLM_CONFIG="$ROOT/src/lecture_auto/llm_config.py"
+NOTE_TEMPLATE="$ROOT/src/lecture_auto/templates/structured-notes.md"
 UV="$ROOT/.venv/bin/uv"
 FFMPEG_ROOT="$ROOT/build/dependencies/ffmpeg-lgpl"
 FFMPEG="$FFMPEG_ROOT/bin/ffmpeg"
@@ -84,6 +85,7 @@ rm -rf "$BUILD_DIR/app.build" "$BUILD_DIR/app.dist" "$BUILD_DIR/app.app" \
   --include-data-file="$PACKAGE_INIT=addon_source/lecture_auto/__init__.py" \
   --include-data-file="$LLM_ADAPTER=addon_source/lecture_auto/llm_adapter.py" \
   --include-data-file="$LLM_CONFIG=addon_source/lecture_auto/llm_config.py" \
+  --include-data-file="$NOTE_TEMPLATE=lecture_auto/templates/structured-notes.md" \
   --include-data-file="$UV=bin/uv" \
   --include-data-file="$FFMPEG=bin/ffmpeg" \
   --include-data-file="$FFPROBE=bin/ffprobe" \

@@ -55,7 +55,10 @@ def test_transcription_writes_raw_transcript_file_under_transcripts_folder(tmp_p
     transcript = tmp_path / "transcripts" / "session-1202-raw.md"
     assert transcript.exists()
     content = transcript.read_text(encoding="utf-8")
-    assert "transcript for recordings/session-1202-imported.wav" in content
+    expected_audio_path = str(
+        (tmp_path / "recordings/session-1202-imported.wav").resolve()
+    )
+    assert f"transcript for {expected_audio_path}" in content
     assert not re.search(r"\[\d{2}:\d{2} - \d{2}:\d{2}\]", content)
     assert "\n" not in content.strip()
 

@@ -952,7 +952,6 @@ class SessionService:
             "transcription_in_progress",
             "file_write_complete",
         ]
-        metadata_root = self.store.metadata_file.parent.parent
         mode = self.stt_config.mode
         attempt = 0
         retry_limit = MAX_STT_API_RETRIES if mode == "api" else 0
@@ -968,9 +967,7 @@ class SessionService:
             job_id=job_id,
             session_id=session_id,
         )
-        adapter_audio_path = audio_relative_path
-        if mode == "api" and self.stt_config.api_provider == "deepgram":
-            adapter_audio_path = self._resolve_audio_input_path(audio_relative_path)
+        adapter_audio_path = self._resolve_audio_input_path(audio_relative_path)
 
         transcript_text: str | None = None
         transcript_result = None
@@ -1679,14 +1676,10 @@ class SessionService:
     def _resolve_audio_input_path(self, audio_path: str) -> str:
         candidate = Path(audio_path)
         if candidate.is_absolute():
-            return str(candidate)
+            return str(candidate.resolve())
 
         metadata_root = self.store.metadata_file.parent.parent
-        metadata_candidate = (metadata_root / candidate).resolve()
-        if metadata_candidate.exists():
-            return str(metadata_candidate)
-
-        return str(candidate.resolve())
+        return str((metadata_root / candidate).resolve())
 
     def _resolve_session_for_reference(self, session_reference: str) -> dict[str, Any]:
         sessions = self.store.list_recent_first()

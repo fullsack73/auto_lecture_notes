@@ -147,7 +147,7 @@ def test_provider_auth_error_maps_to_expected_category(tmp_path: Path) -> None:
     assert exc.value.code == "TRANSCRIPTION_PROVIDER_AUTH_ERROR"
 
 
-def test_deepgram_path_falls_back_to_cwd_relative_audio(tmp_path: Path) -> None:
+def test_deepgram_path_resolves_relative_audio_from_workspace(tmp_path: Path) -> None:
     class CapturingAdapter:
         def __init__(self) -> None:
             self.seen_audio_path: str | None = None
@@ -168,22 +168,47 @@ def test_deepgram_path_falls_back_to_cwd_relative_audio(tmp_path: Path) -> None:
     )
     service.session_create("session-1006", "2026-03-06")
 
-    # Simulate legacy path where recording was created under cwd, not metadata root.
-    legacy_relative = Path("recordings/session-1006.wav")
-    legacy_relative.parent.mkdir(parents=True, exist_ok=True)
-    legacy_relative.write_bytes(b"wav")
+    workspace_audio = tmp_path / "recordings" / "session-1006.wav"
+    workspace_audio.parent.mkdir(parents=True, exist_ok=True)
+    workspace_audio.write_bytes(b"wav")
+    session = service.session_detail("session-1006").payload
+    session["audio_file_path"] = "recordings/session-1006.wav"
+    service.store.upsert(session)
 
-    try:
-        session = service.session_detail("session-1006").payload
-        session["audio_file_path"] = "recordings/session-1006.wav"
-        service.store.upsert(session)
+    result = service.transcribe_session("session-1006")
 
-        result = service.transcribe_session("session-1006")
-        assert result.payload["transcription_progress"]["final_status"] == "succeeded"
-        assert adapter.seen_audio_path is not None
-        assert adapter.seen_audio_path.endswith("recordings/session-1006.wav")
-    finally:
-        legacy_relative.unlink(missing_ok=True)
+    assert result.payload["transcription_progress"]["final_status"] == "succeeded"
+    assert adapter.seen_audio_path == str(workspace_audio.resolve())
+
+
+def test_local_transcription_resolves_relative_audio_from_workspace(tmp_path: Path) -> None:
+    class CapturingLocalAdapter:
+        def __init__(self) -> None:
+            self.seen_audio_path: str | None = None
+
+        def transcribe(self, *, audio_path: str) -> STTResult:
+            self.seen_audio_path = audio_path
+            return STTResult(
+                transcript_text="local transcript",
+                provider="local",
+                mode="local",
+            )
+
+    adapter = CapturingLocalAdapter()
+    service = _service(
+        tmp_path,
+        config=STTConfig(mode="local", local_model_name="base"),
+        local_adapter=adapter,
+    )
+    service.session_create("session-1006-local", "2026-03-06")
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"wav")
+    service.import_audio("session-1006-local", str(source))
+
+    service.transcribe_session("session-1006-local")
+
+    expected = tmp_path / "recordings" / "session-1006-local-imported.wav"
+    assert adapter.seen_audio_path == str(expected.resolve())
 
 
 def test_audio_gain_default_is_noop_and_uses_original_path(tmp_path: Path) -> None:
@@ -212,7 +237,9 @@ def test_audio_gain_default_is_noop_and_uses_original_path(tmp_path: Path) -> No
 
     result = service.transcribe_session("session-1007")
 
-    assert adapter.seen_audio_path == "recordings/session-1007-imported.wav"
+    assert adapter.seen_audio_path == str(
+        (tmp_path / "recordings/session-1007-imported.wav").resolve()
+    )
     assert result.payload["transcription_progress"]["audio_amplification_applied"] is False
     assert result.payload["transcription_progress"]["use_dynaudnorm"] is False
 
@@ -261,6 +288,8 @@ def test_refine_audio_uses_amplified_temp_path_and_transcription_uses_it(tmp_pat
 
         result = service.transcribe_session("session-1008")
 
-    assert adapter.seen_audio_path == "recordings/session-1008-refined.wav"
+    assert adapter.seen_audio_path == str(
+        (tmp_path / "recordings/session-1008-refined.wav").resolve()
+    )
     assert result.payload["transcription_progress"]["audio_amplification_applied"] is True
     assert result.payload["transcription_progress"]["dynaudnorm_f"] == 100
