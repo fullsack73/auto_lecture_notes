@@ -18,8 +18,8 @@ Lecture Auto를 실행하기 위한 설치와 provider 설정.
 ## Install
 
 ```bash
-git clone https://github.com/fullsack73/auto_lecture_notes.git
-cd auto_lecture_notes
+git clone https://github.com/fullsack73/lecture-auto.git
+cd lecture-auto
 pip install -e .
 ```
 
@@ -34,6 +34,62 @@ source checkout에서 직접 실행:
 
 ```bash
 PYTHONPATH=src python -m lecture_auto.cli --help
+```
+
+## macOS 데스크톱 앱 로컬 빌드
+
+현재 GitHub Release로 미리 빌드된 앱을 제공하지 않는다. 다음 조건을 만족하는 Mac에서 사용자가 직접 빌드한다.
+
+- Apple Silicon Mac (`uname -m` 결과가 `arm64`)
+- Python 3.11 이상 ARM64 환경
+- Xcode Command Line Tools
+- Rust toolchain
+- 빌드 파일을 위한 여유 디스크 공간과 FFmpeg 소스 다운로드용 네트워크
+
+처음 한 번만 저장소를 clone한다.
+
+```bash
+git clone https://github.com/fullsack73/lecture-auto.git
+cd lecture-auto
+```
+
+Command Line Tools와 Rust가 없다면 설치한다.
+
+```bash
+xcode-select --install
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+터미널을 다시 열고 프로젝트 루트에서 빌드한다.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+scripts/build_macos_app.sh --install
+```
+
+성공하면 `/Applications/Lecture Auto.app`에 설치된다.
+
+```bash
+open "/Applications/Lecture Auto.app"
+```
+
+Applications에 설치하지 않고 빌드 결과만 확인하려면 `--install` 없이 실행한다.
+
+```bash
+scripts/build_macos_app.sh
+open build/macos/LectureAuto.app
+```
+
+첫 FFmpeg/Nuitka 빌드는 시간이 걸릴 수 있다. 스크립트는 ARM64 FFmpeg/FFprobe를 소스에서 준비하고 앱에 포함하며, 결과 앱에 로컬 실행용 ad-hoc 서명을 적용한다. 이 앱은 Developer ID 서명이나 Apple 공증을 거친 공개 배포본이 아니므로 본인이 빌드한 Mac에서 사용하는 경로를 기준으로 한다.
+
+빌드가 `This build script requires a native arm64 shell`로 실패하면 Intel Mac 또는 Rosetta shell이다. 다음 결과가 `arm64`인지 확인한다.
+
+```bash
+uname -m
+python -c 'import platform; print(platform.machine())'
 ```
 
 ## Workspace

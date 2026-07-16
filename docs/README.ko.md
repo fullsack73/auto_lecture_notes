@@ -24,8 +24,8 @@
 사전 요구사항: `pip install -e .`를 실행하기 전에 Rust를 설치해야 한다. 일부 Python dependency가 native extension을 빌드하면서 Rust toolchain을 요구한다. [rustup.rs](https://rustup.rs/)에서 설치한 뒤, `cargo`가 `PATH`에서 잡히도록 터미널을 다시 연다.
 
 ```bash
-git clone https://github.com/fullsack73/auto_lecture_notes.git
-cd auto_lecture_notes
+git clone https://github.com/fullsack73/lecture-auto.git
+cd lecture-auto
 pip install -e .
 ```
 
@@ -53,6 +53,22 @@ lecture-auto
 ```bash
 lecture-auto-gui
 ```
+
+### macOS 앱 로컬 빌드
+
+미리 빌드된 데스크톱 바이너리는 배포하지 않는다. Apple Silicon Mac에서 소스를 직접 빌드하고 설치한다.
+
+```bash
+xcode-select --install  # Command Line Tools가 이미 있으면 생략
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+scripts/build_macos_app.sh --install
+open "/Applications/Lecture Auto.app"
+```
+
+빌드 스크립트는 ARM64 FFmpeg/FFprobe를 준비해 앱에 포함하고 로컬 실행용 ad-hoc 서명을 적용한다. Developer ID 서명이나 Apple 공증을 거친 공개 배포본은 아니다. 요구사항과 문제 해결은 [setup.ko.md](setup.ko.md#macos-데스크톱-앱-로컬-빌드)를 참고한다.
 
 GUI는 기존 CLI/TUI와 같은 workspace와 세션 데이터를 사용한다. 첫 실행에서 저장 위치와 STT/LLM 방식을 선택하고, 이후 설정 화면에서 녹음 장치, API key, 로컬 Whisper 모델, Ollama 연결을 관리한다. API key는 운영체제 credential store에 저장되며 `config.json`에는 기록되지 않는다.
 

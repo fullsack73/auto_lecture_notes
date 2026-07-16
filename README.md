@@ -37,8 +37,8 @@ Detailed installation and provider setup live in [docs/setup.md](docs/setup.md).
 Prerequisite: install Rust before running `pip install -e .`. Some Python dependencies build native extensions and require the Rust toolchain. Install it from [rustup.rs](https://rustup.rs/), then restart your terminal so `cargo` is available on `PATH`.
 
 ```bash
-git clone https://github.com/fullsack73/auto_lecture_notes.git
-cd auto_lecture_notes
+git clone https://github.com/fullsack73/lecture-auto.git
+cd lecture-auto
 pip install -e .
 ```
 
@@ -83,6 +83,22 @@ Launch the desktop GUI:
 ```bash
 lecture-auto-gui
 ```
+
+### Build the macOS app locally
+
+Prebuilt desktop binaries are not published. On an Apple silicon Mac, build and install the app from source:
+
+```bash
+xcode-select --install  # Skip if Command Line Tools are already installed.
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+scripts/build_macos_app.sh --install
+open "/Applications/Lecture Auto.app"
+```
+
+The build prepares and bundles ARM64 FFmpeg/FFprobe, then applies an ad-hoc signature for local use. It is not a Developer ID-signed or notarized public release. See [docs/setup.md](docs/setup.md#build-the-macos-desktop-app-locally) for requirements and troubleshooting.
 
 The PySide6 desktop app shares its workspace and sessions with the CLI/TUI. It supports session management, capture, imports, audio cleanup, transcription, refinement, notes, library search, secure API-key storage, and local model management.
 

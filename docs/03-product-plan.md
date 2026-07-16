@@ -77,6 +77,7 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 - CLI/TUI/GUI는 같은 workspace와 metadata를 사용해야 한다.
 - 현재 범위는 개인 학습용 로컬 앱이다. 다중 사용자 계정, 서버 동기화, 협업 편집, 모바일 앱, 실시간 자막 UI는 제품 범위에 포함하지 않는다.
 - 녹음 권한, loopback device, provider key/model 설치는 실행 환경의 책임이다. macOS 배포 앱은 FFmpeg/FFprobe를 포함하지만 개발용 CLI와 다른 플랫폼 패키지는 해당 도구를 별도로 준비할 수 있다.
+- 현재 데스크톱 앱은 GitHub Release 바이너리 대신 Apple Silicon Mac에서의 로컬 소스 빌드 절차를 제공한다. 로컬 결과물은 Developer ID 서명·Apple 공증 배포본이 아니다.
 
 ## F. 완료 기준
 

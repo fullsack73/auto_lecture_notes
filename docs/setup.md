@@ -20,8 +20,8 @@ Installation and provider setup for Lecture Auto.
 ## Install
 
 ```bash
-git clone https://github.com/fullsack73/auto_lecture_notes.git
-cd auto_lecture_notes
+git clone https://github.com/fullsack73/lecture-auto.git
+cd lecture-auto
 pip install -e .
 ```
 
@@ -36,6 +36,62 @@ Run directly from a source checkout:
 
 ```bash
 PYTHONPATH=src python -m lecture_auto.cli --help
+```
+
+## Build the macOS Desktop App Locally
+
+Prebuilt desktop binaries are not currently published through GitHub Releases. Users build the app on a Mac that meets these requirements:
+
+- Apple silicon (`uname -m` prints `arm64`)
+- An ARM64 Python 3.11 or newer
+- Xcode Command Line Tools
+- The Rust toolchain
+- Enough free disk space for build files and network access to download FFmpeg sources
+
+Clone the repository once:
+
+```bash
+git clone https://github.com/fullsack73/lecture-auto.git
+cd lecture-auto
+```
+
+Install Command Line Tools and Rust if they are missing:
+
+```bash
+xcode-select --install
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Open a new terminal, then build from the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+scripts/build_macos_app.sh --install
+```
+
+The installed app is available at `/Applications/Lecture Auto.app`:
+
+```bash
+open "/Applications/Lecture Auto.app"
+```
+
+To build without installing into Applications, omit `--install`:
+
+```bash
+scripts/build_macos_app.sh
+open build/macos/LectureAuto.app
+```
+
+The first FFmpeg/Nuitka build can take some time. The script prepares ARM64 FFmpeg/FFprobe from source, bundles them with the app, and applies an ad-hoc signature for local execution. The result is not a Developer ID-signed or Apple-notarized public release and is intended for use on the Mac where it was built.
+
+If the build reports `This build script requires a native arm64 shell`, verify that neither the shell nor Python is running through Rosetta:
+
+```bash
+uname -m
+python -c 'import platform; print(platform.machine())'
 ```
 
 ## Workspace

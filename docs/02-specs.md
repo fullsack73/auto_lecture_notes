@@ -13,6 +13,7 @@
 - **테스트**: pytest, 선택적으로 pytest-qt
 - **플랫폼**: macOS 녹음/앱 배포를 우선 지원하며 Windows 배포 설정도 유지한다.
 - **macOS 미디어 도구**: 배포 앱은 ARM64 FFmpeg/FFprobe를 `Contents/MacOS/bin`에 포함한다. 빌드 스크립트는 고정된 소스와 checksum으로 GPL/nonfree 기능을 끈 바이너리를 준비하고 AVFoundation, MP3, 외부 Homebrew dylib 비의존성을 검증한다.
+- **데스크톱 제공 방식**: 현재 서명·공증된 사전 빌드 바이너리나 GitHub Release를 제공하지 않는다. Apple Silicon Mac 사용자가 소스에서 로컬 빌드하며 결과 앱은 로컬 실행용 ad-hoc 서명을 사용한다.
 
 ## B. 계층별 구현 규칙
 
