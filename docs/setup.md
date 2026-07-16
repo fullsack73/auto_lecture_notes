@@ -8,8 +8,8 @@ Installation and provider setup for Lecture Auto.
 
 - Python 3.11+
 - FFmpeg
-- macOS with AVFoundation support for built-in recording
-- A loopback device for system-audio recording, such as:
+- A supported capture backend: macOS AVFoundation, Windows DirectShow, or Linux PulseAudio/ALSA
+- A loopback or monitor device for system-audio recording, such as:
   - BlackHole
   - Loopback
   - Soundflower
@@ -93,6 +93,53 @@ If the build reports `This build script requires a native arm64 shell`, verify t
 uname -m
 python -c 'import platform; print(platform.machine())'
 ```
+
+## Build the Windows Desktop App Locally
+
+The native Windows build supports x86_64 Windows with Python 3.11 or newer. Install the C/C++ build tools requested by Nuitka and optionally Inno Setup 6 for an installer. From PowerShell in the repository root:
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[build]"
+./scripts/build_windows_app.ps1
+./build/windows/LectureAuto.dist/LectureAuto.exe
+```
+
+To build the installer:
+
+```powershell
+./scripts/build_windows_app.ps1 -Installer
+./dist-installer/LectureAuto-Setup.exe
+```
+
+The script downloads a pinned x86_64 LGPL FFmpeg build, validates its SHA-256, DirectShow and MP3 support, and bundles FFmpeg license/source notices. The packaged GUI is smoke-launched before the build succeeds.
+
+## Build the Linux Desktop App Locally
+
+Linux builds support x86_64 and ARM64 with Python 3.11 or newer. Install a compiler, `patchelf`, and common archive tools. For Debian/Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential python3-dev patchelf curl \
+  libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+  libxcb-xkb1 libxkbcommon-x11-0
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+bash scripts/build_linux_app.sh
+build/linux/LectureAuto.dist/LectureAuto
+```
+
+The normal build also creates `dist-release/LectureAuto-linux-<arch>.tar.gz`. To create an AppImage:
+
+```bash
+bash scripts/build_linux_app.sh --appimage
+```
+
+The Linux build bundles a pinned LGPL FFmpeg/FFprobe pair and checks for PulseAudio or ALSA capture, MP3 support, license notices, and a headless GUI smoke launch. AppImage packaging uses a checksum-pinned `linuxdeploy` asset.
 
 ## Workspace
 

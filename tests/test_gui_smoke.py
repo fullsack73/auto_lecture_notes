@@ -9,7 +9,7 @@ from unittest.mock import call, patch
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QStatusBar
 
 from lecture_auto.application import AppConfig, ConfigRepository
 from lecture_auto.capture_runtime import AudioDevice
@@ -58,6 +58,19 @@ def test_main_window_navigates_and_shows_created_session(tmp_path: Path, qtbot) 
     assert window.stack.currentWidget() is window.sessions_page
     assert window.sessions_page.current_session_id == "week-01"
     assert window.sessions_page.detail_title.text() == "Intro"
+
+
+def test_command_feedback_does_not_create_bottom_status_bar(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+
+    result = window.execute(
+        lambda: window.container.session.session_create("week-01", "2026-07-12", "Intro", "CS101"),
+        refresh=False,
+    )
+
+    assert result is not None
+    assert window.findChildren(QStatusBar) == []
+    assert window.task_status.text() == result.message
 
 
 def test_session_actions_follow_recording_to_notes_workflow(tmp_path: Path, qtbot) -> None:

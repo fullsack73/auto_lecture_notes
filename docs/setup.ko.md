@@ -92,6 +92,53 @@ uname -m
 python -c 'import platform; print(platform.machine())'
 ```
 
+## Windows 데스크톱 앱 로컬 빌드
+
+x86_64 Windows와 Python 3.11 이상을 지원한다. Nuitka가 안내하는 C/C++ build tools를 설치하고, installer가 필요하면 Inno Setup 6도 설치한다. 저장소 루트의 PowerShell에서 실행한다.
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[build]"
+./scripts/build_windows_app.ps1
+./build/windows/LectureAuto.dist/LectureAuto.exe
+```
+
+installer 생성:
+
+```powershell
+./scripts/build_windows_app.ps1 -Installer
+./dist-installer/LectureAuto-Setup.exe
+```
+
+스크립트는 고정된 x86_64 LGPL FFmpeg 빌드를 다운로드하여 SHA-256, DirectShow, MP3 지원을 검증하고 FFmpeg 라이선스와 소스 고지를 포함한다. 패키징된 GUI smoke 실행까지 통과해야 빌드가 성공한다.
+
+## Linux 데스크톱 앱 로컬 빌드
+
+x86_64와 ARM64 Linux, Python 3.11 이상을 지원한다. Debian/Ubuntu에서는 다음과 같이 준비한다.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential python3-dev patchelf curl \
+  libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+  libxcb-xkb1 libxkbcommon-x11-0
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+bash scripts/build_linux_app.sh
+build/linux/LectureAuto.dist/LectureAuto
+```
+
+일반 빌드도 `dist-release/LectureAuto-linux-<arch>.tar.gz`를 만든다. AppImage가 필요하면 실행한다.
+
+```bash
+bash scripts/build_linux_app.sh --appimage
+```
+
+Linux 빌드는 고정된 LGPL FFmpeg/FFprobe를 포함하고 PulseAudio 또는 ALSA 입력, MP3, 라이선스 고지와 headless GUI smoke 실행을 확인한다. AppImage는 checksum으로 고정한 `linuxdeploy` asset으로 만든다.
+
 ## Workspace
 
 기본 workspace는 `~/.lecture_auto`다.

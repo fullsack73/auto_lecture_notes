@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Lecture Auto
+Comment=Record lectures and generate structured study notes
+Exec=LectureAuto
+Icon=lecture-auto
+Terminal=false
+Categories=Education;
+StartupNotify=true

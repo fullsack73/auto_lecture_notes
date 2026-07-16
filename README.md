@@ -2,20 +2,9 @@
 
 [Korean documentation](docs/README.ko.md)
 
-A CLI/TUI tool that lets your computer attend class for you.
+A desktop GUI, CLI, and TUI application that lets your computer attend class for you.
 
 Lecture Auto records lecture audio, transcribes it, refines the transcript, and generates structured study notes. Instead of taking notes manually in real time, you can hand off the `recording -> transcript -> structured notes` flow to the program.
-
-## Project Documentation
-
-The repository follows a docs-first working agreement based on [Austin's Docs Architecture](https://github.com/EunHyeokJung/austin-docs-architecture):
-
-- [Agent working agreement](AGENTS.md)
-- [Folder architecture](docs/01-folder-architecture.md)
-- [Technical specs](docs/02-specs.md)
-- [Product plan](docs/03-product-plan.md)
-- [TODO index](docs/todo/00-todo-list.md)
-- [Work reports](docs/reports/)
 
 ## What It Does
 
@@ -26,23 +15,82 @@ The repository follows a docs-first working agreement based on [Austin's Docs Ar
 - Generate structured lecture notes with an LLM
 - Attach PDF/PPT/PPTX course materials to sessions
 - Search and open generated notes, transcripts, and recordings
-- Use either CLI commands or the interactive TUI
+- Use the desktop GUI, CLI commands, or the interactive TUI
 
 Notes always use the `structured-notes` format. With Ollama, the model does not write Markdown directly; it generates section JSON, and the app renders the final Markdown.
 
-## Quick Start
+## How to Install
 
 Detailed installation and provider setup live in [docs/setup.md](docs/setup.md). Korean setup docs are available at [docs/setup.ko.md](docs/setup.ko.md).
 
-Prerequisite: install Rust before running `pip install -e .`. Some Python dependencies build native extensions and require the Rust toolchain. Install it from [rustup.rs](https://rustup.rs/), then restart your terminal so `cargo` is available on `PATH`.
+Clone the repository first:
 
 ```bash
 git clone https://github.com/fullsack73/lecture-auto.git
 cd lecture-auto
-pip install -e .
 ```
 
-Basic config:
+### 1. Build and run the desktop app locally
+
+Install Python 3.11+ and the Rust toolchain before building. Desktop builds are native rather than cross-compiled, so use the commands for the operating system where the app will run.
+
+#### macOS (Apple silicon)
+
+Install Xcode Command Line Tools first. Then build and install the app:
+
+```bash
+xcode-select --install  # Skip if Command Line Tools are already installed.
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+scripts/build_macos_app.sh --install
+open "/Applications/Lecture Auto.app"
+```
+
+The build bundles ARM64 FFmpeg/FFprobe and applies an ad-hoc signature for local use. It is not a Developer ID-signed or notarized public release. See [the macOS build guide](docs/setup.md#build-the-macos-desktop-app-locally) for requirements and troubleshooting.
+
+#### Windows (x86_64)
+
+From PowerShell, create the build environment and run the native build:
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[build]"
+./scripts/build_windows_app.ps1
+./build/windows/LectureAuto.dist/LectureAuto.exe
+```
+
+If Inno Setup 6 is installed, add `-Installer` to create `dist-installer/LectureAuto-Setup.exe`. See [the Windows build guide](docs/setup.md#build-the-windows-desktop-app-locally) for native compiler requirements.
+
+#### Linux (x86_64 or ARM64)
+
+After installing the compiler, `patchelf`, and the distribution packages listed in [the Linux build guide](docs/setup.md#build-the-linux-desktop-app-locally), run:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+bash scripts/build_linux_app.sh
+build/linux/LectureAuto.dist/LectureAuto
+```
+
+Add `--appimage` to create an AppImage as well as the portable tar archive. Windows and Linux builds bundle checksum-verified LGPL FFmpeg/FFprobe binaries and license notices.
+
+The PySide6 desktop app shares its workspace and sessions with the CLI/TUI. It supports session management, capture, imports, audio cleanup, transcription, refinement, notes, library search, secure API-key storage, and local model management.
+
+### 2. Install and use the CLI/TUI
+
+Install Python 3.11+, FFmpeg, and Rust before installing from the source checkout. Some Python dependencies build native extensions and require the Rust toolchain. Install Rust from [rustup.rs](https://rustup.rs/), then restart your terminal so `cargo` is available on `PATH`.
+
+```bash
+python -m pip install -e .
+```
+
+Set the workspace and providers:
 
 ```bash
 lecture-auto config set \
@@ -55,13 +103,13 @@ lecture-auto config set \
   --gemini-api-key "your-google-api-key"
 ```
 
-Open the TUI:
+Open the interactive TUI:
 
 ```bash
 lecture-auto
 ```
 
-Run one session from the CLI:
+Run a complete session from the CLI:
 
 ```bash
 lecture-auto session create \
@@ -77,30 +125,6 @@ lecture-auto summarize --id week-01
 ```
 
 Generated files are stored under the active workspace.
-
-Launch the desktop GUI:
-
-```bash
-lecture-auto-gui
-```
-
-### Build the macOS app locally
-
-Prebuilt desktop binaries are not published. On an Apple silicon Mac, build and install the app from source:
-
-```bash
-xcode-select --install  # Skip if Command Line Tools are already installed.
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[build]'
-scripts/build_macos_app.sh --install
-open "/Applications/Lecture Auto.app"
-```
-
-The build prepares and bundles ARM64 FFmpeg/FFprobe, then applies an ad-hoc signature for local use. It is not a Developer ID-signed or notarized public release. See [docs/setup.md](docs/setup.md#build-the-macos-desktop-app-locally) for requirements and troubleshooting.
-
-The PySide6 desktop app shares its workspace and sessions with the CLI/TUI. It supports session management, capture, imports, audio cleanup, transcription, refinement, notes, library search, secure API-key storage, and local model management.
 
 ```text
 metadata/sessions.json
@@ -170,7 +194,7 @@ lecture-auto capture start <session_id>
 lecture-auto capture stop <session_id>
 ```
 
-Recording uses FFmpeg/AVFoundation on macOS. System audio capture may require a loopback device such as BlackHole, Loopback, or Soundflower.
+Recording uses FFmpeg with AVFoundation on macOS, DirectShow on Windows, and PulseAudio or ALSA on Linux. System audio capture may require a loopback or monitor device.
 
 ### Transcription
 

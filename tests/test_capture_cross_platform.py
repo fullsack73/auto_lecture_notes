@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 from lecture_auto.capture_runtime import (
@@ -37,9 +38,10 @@ def test_system_audio_requires_matching_device() -> None:
 
 
 def test_media_tool_resolver_prefers_app_bundle(tmp_path, monkeypatch) -> None:
-    executable = tmp_path / "LectureAuto"
+    suffix = ".exe" if sys.platform == "win32" else ""
+    executable = tmp_path / f"LectureAuto{suffix}"
     executable.write_text("")
-    bundled_ffmpeg = tmp_path / "bin" / "ffmpeg"
+    bundled_ffmpeg = tmp_path / "bin" / f"ffmpeg{suffix}"
     bundled_ffmpeg.parent.mkdir()
     bundled_ffmpeg.write_text("")
     monkeypatch.setattr("lecture_auto.capture_runtime.sys.executable", str(executable))

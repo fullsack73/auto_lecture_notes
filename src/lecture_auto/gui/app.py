@@ -356,7 +356,6 @@ QPushButton#SettingsDangerLink:hover {
     border-color: #cd928d;
 }
 QFrame#TaskTray QListWidget { background: #f8faf8; border-color: #d7dfda; }
-QStatusBar { color: #536158; background: #eef2ef; border-top: 1px solid #dbe2dd; }
 QToolTip { color: #ffffff; background: #17241e; border: 1px solid #3d5147; padding: 5px; }
 """
 
@@ -1389,7 +1388,7 @@ class SettingsPage(QWidget):
             previous = self.workspace.text()
             self.workspace.setText(value)
             if self._save(show_confirmation=False):
-                self.window.statusBar().showMessage(
+                self.window.show_status_message(
                     f"워크스페이스를 변경했습니다: {self.window.config.workspace}",
                     7000,
                 )
@@ -1552,6 +1551,10 @@ class MainWindow(QMainWindow):
         task_header = QHBoxLayout()
         self.task_status = QLabel("준비됨")
         self.task_status.setObjectName("StatusReady")
+        self._status_message = ""
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(self._clear_status_message)
         self.task_progress = QProgressBar()
         self.task_progress.setRange(0, 1)
         self.task_progress.setValue(1)
@@ -1599,7 +1602,7 @@ class MainWindow(QMainWindow):
         try:
             result = action()
             if isinstance(result, CommandResult):
-                self.statusBar().showMessage(result.message, 5000)
+                self.show_status_message(result.message, 5000)
             if refresh:
                 self.refresh_all()
             return result
@@ -1732,6 +1735,20 @@ class MainWindow(QMainWindow):
         if not count:
             self.task_progress.setRange(0, 1)
             self.task_progress.setValue(1)
+
+    def show_status_message(self, message: str, timeout: int = 5000) -> None:
+        """Show transient feedback in the task tray without creating a status bar."""
+        self._status_message = message
+        self.task_status.setText(message)
+        if timeout > 0:
+            self._status_timer.start(timeout)
+        else:
+            self._status_timer.stop()
+
+    def _clear_status_message(self) -> None:
+        if self.jobs.active_count == 0 and self.task_status.text() == self._status_message:
+            self.task_status.setText("준비됨")
+        self._status_message = ""
 
     def show_error(self, exc: BaseException) -> None:
         if isinstance(exc, SessionCommandError):

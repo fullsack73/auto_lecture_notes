@@ -11,7 +11,7 @@ PACKAGE_INIT="$ROOT/src/lecture_auto/__init__.py"
 LLM_ADAPTER="$ROOT/src/lecture_auto/llm_adapter.py"
 LLM_CONFIG="$ROOT/src/lecture_auto/llm_config.py"
 NOTE_TEMPLATE="$ROOT/src/lecture_auto/templates/structured-notes.md"
-UV="$ROOT/.venv/bin/uv"
+UV="${UV:-$ROOT/.venv/bin/uv}"
 FFMPEG_ROOT="$ROOT/build/dependencies/ffmpeg-lgpl"
 FFMPEG="$FFMPEG_ROOT/bin/ffmpeg"
 FFPROBE="$FFMPEG_ROOT/bin/ffprobe"
@@ -26,11 +26,19 @@ if [[ "$(uname -m)" != "arm64" ]]; then
 fi
 
 if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || true)"
+fi
+
+if [[ -z "$PYTHON" || ! -x "$PYTHON" ]]; then
   print -u2 "Python environment not found: $PYTHON"
   exit 2
 fi
 
 if [[ ! -x "$UV" ]]; then
+  UV="$(command -v uv || true)"
+fi
+
+if [[ -z "$UV" || ! -x "$UV" ]]; then
   print -u2 "uv build binary not found: $UV"
   print -u2 "Install build dependencies with: $PYTHON -m pip install -e '$ROOT[build]'"
   exit 2
@@ -103,7 +111,9 @@ chmod +x "$APP/Contents/MacOS/bin/ffmpeg" "$APP/Contents/MacOS/bin/ffprobe"
 
 "$PYTHON" "$ROOT/scripts/verify_lightweight_app.py" \
   --app "$APP" \
-  --report "$BUILD_DIR/nuitka-report.xml"
+  --report "$BUILD_DIR/nuitka-report.xml" \
+  --platform macos \
+  --architecture arm64
 
 codesign --force --deep --sign - --identifier "com.anarchytoast.lectureauto" "$APP"
 

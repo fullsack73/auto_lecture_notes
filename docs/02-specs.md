@@ -11,9 +11,11 @@
 - **TUI**: questionary
 - **GUI**: PySide6
 - **테스트**: pytest, 선택적으로 pytest-qt
-- **플랫폼**: macOS 녹음/앱 배포를 우선 지원하며 Windows 배포 설정도 유지한다.
+- **플랫폼**: macOS ARM64, Windows x86_64, Linux x86_64/ARM64의 네이티브 GUI 빌드를 지원한다. 교차 컴파일은 지원하지 않는다.
 - **macOS 미디어 도구**: 배포 앱은 ARM64 FFmpeg/FFprobe를 `Contents/MacOS/bin`에 포함한다. 빌드 스크립트는 고정된 소스와 checksum으로 GPL/nonfree 기능을 끈 바이너리를 준비하고 AVFoundation, MP3, 외부 Homebrew dylib 비의존성을 검증한다.
-- **데스크톱 제공 방식**: 현재 서명·공증된 사전 빌드 바이너리나 GitHub Release를 제공하지 않는다. Apple Silicon Mac 사용자가 소스에서 로컬 빌드하며 결과 앱은 로컬 실행용 ad-hoc 서명을 사용한다.
+- **Windows/Linux 미디어 도구**: 월말 보존되는 고정 BtbN LGPL 빌드와 SHA-256을 사용한다. Windows는 DirectShow, Linux는 PulseAudio 또는 ALSA 입력과 MP3 지원을 검증하며 FFmpeg 라이선스와 소스 정보를 앱에 포함한다.
+- **데스크톱 패키징**: 모든 플랫폼은 Nuitka standalone 빌드에서 구조화 노트 템플릿, add-on worker, `uv`, FFmpeg/FFprobe를 같은 상대 경로로 포함한다. Windows는 Inno Setup installer를, Linux는 tar.gz와 선택적 AppImage를 생성한다.
+- **데스크톱 제공 방식**: 로컬 네이티브 빌드와 GitHub Actions artifact 경로를 유지한다. macOS 로컬 앱은 ad-hoc 서명이고, Windows installer와 Linux AppImage도 코드 서명된 공개 배포본이 아니다.
 
 ## B. 계층별 구현 규칙
 
