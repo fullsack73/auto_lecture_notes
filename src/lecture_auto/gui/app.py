@@ -1035,7 +1035,7 @@ class SettingsPage(QWidget):
         self.audio_format = combo((("WAV", "wav"), ("MP3", "mp3")))
         self.capture_source = combo((("마이크", "microphone"), ("시스템 오디오", "system_audio")))
         self.capture_source.currentIndexChanged.connect(self.refresh_devices)
-        self.devices = QComboBox()
+        self.devices = NoWheelComboBox()
         device_row = QHBoxLayout()
         device_row.addWidget(self.devices)
         device_refresh = QPushButton("장치 새로고침")
@@ -1053,9 +1053,9 @@ class SettingsPage(QWidget):
         self.stt_model = combo(tuple((name, name) for name in ("base", "small", "medium", "large-v3")))
         self.stt_language = QLineEdit()
         self.dynaudnorm = QCheckBox()
-        self.dynaudnorm_f = QSpinBox(); self.dynaudnorm_f.setRange(10, 8000)
-        self.dynaudnorm_g = QSpinBox(); self.dynaudnorm_g.setRange(3, 301); self.dynaudnorm_g.setSingleStep(2)
-        self.gain_db = QDoubleSpinBox(); self.gain_db.setRange(-60.0, 60.0); self.gain_db.setDecimals(1)
+        self.dynaudnorm_f = NoWheelSpinBox(); self.dynaudnorm_f.setRange(10, 8000)
+        self.dynaudnorm_g = NoWheelSpinBox(); self.dynaudnorm_g.setRange(3, 301); self.dynaudnorm_g.setSingleStep(2)
+        self.gain_db = NoWheelDoubleSpinBox(); self.gain_db.setRange(-60.0, 60.0); self.gain_db.setDecimals(1)
         form.addRow("STT 방식", self.stt_mode)
         form.addRow("STT API provider", self.stt_provider)
         form.addRow("STT API key", self.stt_key)
@@ -1779,8 +1779,23 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+
 def combo(items: tuple[tuple[str, str], ...]) -> QComboBox:
-    widget = QComboBox()
+    widget = NoWheelComboBox()
     for label, value in items:
         widget.addItem(label, value)
     return widget

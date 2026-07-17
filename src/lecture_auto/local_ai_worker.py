@@ -148,7 +148,10 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
     model = str(request.get("model") or "base")
     model_path = request.get("model_path")
     model_source = str(model_path) if model_path and Path(str(model_path)).is_dir() else model
-    kwargs: dict[str, Any] = {"compute_type": str(request.get("compute_type") or "int8")}
+    kwargs: dict[str, Any] = {
+        "device": "cpu",
+        "compute_type": str(request.get("compute_type") or "int8"),
+    }
     download_root = request.get("download_root")
     if download_root and model_source == model:
         kwargs["download_root"] = str(download_root)

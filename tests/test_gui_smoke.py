@@ -6,10 +6,10 @@ from threading import Event
 from pathlib import Path
 from unittest.mock import call, patch
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QCloseEvent, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QStatusBar
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QStatusBar
 
 from lecture_auto.application import AppConfig, ConfigRepository
 from lecture_auto.capture_runtime import AudioDevice
@@ -314,6 +314,32 @@ def test_settings_disable_fields_for_inactive_stt_and_llm_providers(tmp_path: Pa
 
     assert all(control.isEnabled() for control in page._gemini_controls)
     assert all(not control.isEnabled() for control in page._ollama_controls)
+
+
+def test_settings_value_controls_ignore_mouse_wheel(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    page = window.settings_page
+    page.stt_model.setCurrentIndex(1)
+    page.dynaudnorm_f.setValue(150)
+    page.gain_db.setValue(3.0)
+
+    for widget in (page.stt_model, page.dynaudnorm_f, page.gain_db):
+        widget.setFocus()
+        event = QWheelEvent(
+            QPointF(5, 5),
+            QPointF(5, 5),
+            QPoint(),
+            QPoint(0, -120),
+            Qt.NoButton,
+            Qt.NoModifier,
+            Qt.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(widget, event)
+
+    assert page.stt_model.currentIndex() == 1
+    assert page.dynaudnorm_f.value() == 150
+    assert page.gain_db.value() == 3.0
 
 
 def test_workspace_picker_applies_immediately_and_persists(tmp_path: Path, qtbot, monkeypatch) -> None:
