@@ -1,14 +1,19 @@
 """Standalone JSON Lines worker executed by an external local-AI Python runtime."""
 from __future__ import annotations
 
+import os
+import sys
+
+_WORKER_DIR = os.path.normcase(os.path.abspath(os.path.dirname(__file__)))
+if sys.path and os.path.normcase(os.path.abspath(sys.path[0])) == _WORKER_DIR:
+    sys.path.pop(0)
+
 import importlib
 import importlib.metadata
 import json
-import os
 import platform
 import shutil
 import subprocess
-import sys
 import tempfile
 import traceback
 from pathlib import Path
@@ -97,8 +102,12 @@ def emit(event_type: str, **payload: Any) -> None:
 
 
 def package_probe(distribution: str, module_name: str) -> dict[str, Any]:
+    try:
+        found = importlib.util.find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError):
+        found = False
     result: dict[str, Any] = {
-        "found": importlib.util.find_spec(module_name) is not None,
+        "found": found,
         "import_ok": False,
         "version": None,
         "error": None,

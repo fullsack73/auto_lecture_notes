@@ -1,8 +1,14 @@
 """One-shot worker for the optional Gemini SDK add-on runtime."""
 from __future__ import annotations
 
-import json
+import os
 import sys
+
+_WORKER_DIR = os.path.normcase(os.path.abspath(os.path.dirname(__file__)))
+if sys.path and os.path.normcase(os.path.abspath(sys.path[0])) == _WORKER_DIR:
+    sys.path.pop(0)
+
+import json
 import traceback
 from pathlib import Path
 from typing import Any

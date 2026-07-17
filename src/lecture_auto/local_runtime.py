@@ -303,14 +303,14 @@ class LocalRuntimeManager:
             self.runtime_dir.mkdir(parents=True, exist_ok=True)
             self._step(progress, "python", 0, 4, "Preparing managed Python 3.11")
             token.raise_if_cancelled()
-            self._install_managed_python(
+            managed_python = self._install_managed_python(
                 [str(uv), "python", "install", "3.11", "--install-dir", str(self.python_install_dir)],
                 env,
                 progress,
                 token,
             )
             self._step(progress, "venv", 1, 4, "Creating temporary runtime")
-            self._run_command([str(uv), "venv", str(staging), "--python", "3.11", "--managed-python"], env, progress, token)
+            self._create_managed_venv(managed_python, staging, env, progress, token)
             packages: list[str] = []
             if "whisper" in requested:
                 packages.extend(WHISPER_PACKAGES)
@@ -452,7 +452,7 @@ class LocalRuntimeManager:
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
         process = subprocess.Popen(
-            [str(python), str(selected_worker)],
+            [str(python), "-I", "-X", "utf8", str(selected_worker)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -528,7 +528,11 @@ class LocalRuntimeManager:
         env: dict[str, str],
         progress: RuntimeProgress | None,
         token: CancellationToken,
-    ) -> None:
+    ) -> Path:
+        installed_python = self._find_managed_python()
+        if installed_python is not None:
+            self._step(progress, "python", 0, 4, "Using existing managed Python 3.11")
+            return installed_python
         try:
             self._run_command(command, env, progress, token)
         except LocalRuntimeError as exc:
@@ -539,8 +543,62 @@ class LocalRuntimeManager:
             if not windows_link_error:
                 raise
             token.raise_if_cancelled()
-            self._step(progress, "python", 0, 4, "Retrying managed Python link creation")
+            installed_python = self._find_managed_python()
+            if installed_python is not None:
+                self._step(
+                    progress,
+                    "python",
+                    0,
+                    4,
+                    "Managed Python installed; continuing without the minor-version link",
+                )
+                return installed_python
+            self._step(progress, "python", 0, 4, "Retrying managed Python installation")
             self._run_command(command, env, progress, token)
+        installed_python = self._find_managed_python()
+        if installed_python is None:
+            raise LocalRuntimeError("Managed Python 3.11 was installed but its executable could not be found.")
+        return installed_python
+
+    def _find_managed_python(self) -> Path | None:
+        prefix = "cpython-3.11."
+        candidates: list[tuple[int, Path]] = []
+        try:
+            installations = tuple(self.python_install_dir.iterdir())
+        except OSError:
+            return None
+        for installation in installations:
+            if not installation.name.startswith(prefix):
+                continue
+            patch = installation.name.removeprefix(prefix).split("-", 1)[0]
+            if not patch.isdigit():
+                continue
+            executables = (
+                (installation / "python.exe",)
+                if sys.platform == "win32"
+                else (installation / "bin" / "python3.11", installation / "bin" / "python")
+            )
+            executable = next((path for path in executables if path.is_file()), None)
+            if executable is not None:
+                candidates.append((int(patch), executable))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item[0])[1]
+
+    def _create_managed_venv(
+        self,
+        managed_python: Path,
+        staging: Path,
+        env: dict[str, str],
+        progress: RuntimeProgress | None,
+        token: CancellationToken,
+    ) -> None:
+        self._run_command(
+            [str(managed_python), "-m", "venv", str(staging)],
+            env,
+            progress,
+            token,
+        )
 
     @staticmethod
     def _run_command(

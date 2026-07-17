@@ -153,6 +153,20 @@ def test_worker_protocol_uses_utf8_for_korean_text(tmp_path: Path) -> None:
     assert result["message"] == "강의 설치"
 
 
+def test_worker_runs_in_isolated_mode(tmp_path: Path) -> None:
+    worker = make_executable(
+        tmp_path / "isolated_worker.py",
+        "import json,sys\n"
+        "sys.stdin.readline()\n"
+        "print(json.dumps({'type':'result','result':{'isolated':bool(sys.flags.isolated)}}))\n",
+    )
+    manager = LocalRuntimeManager(tmp_path / "runtime", worker_script=worker)
+
+    result = manager._run_worker(Path(sys.executable), {"action": "probe"})
+
+    assert result["isolated"] is True
+
+
 def test_runtime_command_decodes_utf8_progress_output(tmp_path: Path) -> None:
     command = make_executable(
         tmp_path / "utf8_output.py",
@@ -172,10 +186,13 @@ def test_runtime_command_decodes_utf8_progress_output(tmp_path: Path) -> None:
     assert progress_events[0][-1] == "Whisper 설치 중"
 
 
-def test_windows_python_link_error_is_retried_once(
+def test_existing_concrete_managed_python_skips_uv_install(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     manager = LocalRuntimeManager(tmp_path / "runtime")
+    installed_python = manager.python_install_dir / "cpython-3.11.15-windows-x86_64-none" / "python.exe"
+    installed_python.parent.mkdir(parents=True)
+    installed_python.write_bytes(b"python")
     calls: list[list[str]] = []
     progress_events: list[tuple[object, ...]] = []
 
@@ -186,26 +203,87 @@ def test_windows_python_link_error_is_retried_once(
         token: CancellationToken,
     ) -> None:
         calls.append(command)
-        if len(calls) == 1:
-            raise LocalRuntimeError(
-                "Runtime command failed:\n"
-                "error: Failed to create Python minor version link directory\n"
-                "Caused by: os error 448"
-            )
+        raise LocalRuntimeError(
+            "Runtime command failed:\n"
+            "error: Failed to create Python minor version link directory\n"
+            "Caused by: os error 448"
+        )
 
     monkeypatch.setattr(local_runtime_module.sys, "platform", "win32")
     monkeypatch.setattr(manager, "_run_command", run_command)
     command = ["uv", "python", "install", "3.11"]
 
-    manager._install_managed_python(
+    result = manager._install_managed_python(
         command,
         {},
         lambda *values: progress_events.append(values),
         CancellationToken(),
     )
 
-    assert calls == [command, command]
-    assert progress_events[-1][-1] == "Retrying managed Python link creation"
+    assert result == installed_python
+    assert calls == []
+    assert progress_events[-1][-1] == "Using existing managed Python 3.11"
+
+
+def test_windows_python_link_error_recovers_newly_downloaded_python(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = LocalRuntimeManager(tmp_path / "runtime")
+    calls: list[list[str]] = []
+    progress_events: list[tuple[object, ...]] = []
+    installed_python = manager.python_install_dir / "cpython-3.11.15-windows-x86_64-none" / "python.exe"
+
+    def run_command(command, env, progress, token) -> None:
+        calls.append(command)
+        installed_python.parent.mkdir(parents=True)
+        installed_python.write_bytes(b"python")
+        raise LocalRuntimeError(
+            "Runtime command failed:\n"
+            "error: Failed to create Python minor version link directory\n"
+            "Caused by: os error 448"
+        )
+
+    monkeypatch.setattr(local_runtime_module.sys, "platform", "win32")
+    monkeypatch.setattr(manager, "_run_command", run_command)
+    command = ["uv", "python", "install", "3.11"]
+
+    result = manager._install_managed_python(
+        command,
+        {},
+        lambda *values: progress_events.append(values),
+        CancellationToken(),
+    )
+
+    assert result == installed_python
+    assert calls == [command]
+    assert progress_events[-1][-1] == (
+        "Managed Python installed; continuing without the minor-version link"
+    )
+
+
+def test_managed_venv_uses_concrete_python_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = LocalRuntimeManager(tmp_path / "runtime")
+    commands: list[list[str]] = []
+    managed_python = tmp_path / "pythons" / "cpython-3.11.15-windows-x86_64-none" / "python.exe"
+    staging = tmp_path / "runtime" / ".staging-test"
+
+    monkeypatch.setattr(
+        manager,
+        "_run_command",
+        lambda command, env, progress, token: commands.append(command),
+    )
+
+    manager._create_managed_venv(
+        managed_python,
+        staging,
+        {},
+        None,
+        CancellationToken(),
+    )
+
+    assert commands == [[str(managed_python), "-m", "venv", str(staging)]]
 
 
 def test_non_link_python_install_error_is_not_retried(
@@ -241,13 +319,16 @@ def test_worker_crash_is_isolated(tmp_path: Path) -> None:
         manager._run_worker(Path(sys.executable), {"action": "probe"})
 
 
-def test_fake_uv_install_atomically_activates_runtime(tmp_path: Path) -> None:
+def test_fake_uv_install_atomically_activates_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manager = LocalRuntimeManager(
         tmp_path / "runtime",
         uv_path=str(fake_uv(tmp_path)),
         worker_script=fake_probe_worker(tmp_path),
         allow_development_python=False,
     )
+    monkeypatch.setattr(manager, "_install_managed_python", lambda *args, **kwargs: Path(sys.executable))
 
     status = manager.install_whisper()
 
@@ -257,7 +338,9 @@ def test_fake_uv_install_atomically_activates_runtime(tmp_path: Path) -> None:
     assert not list(manager.runtime_dir.glob(".staging-*"))
 
 
-def test_failed_install_preserves_existing_runtime(tmp_path: Path) -> None:
+def test_failed_install_preserves_existing_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     runtime = tmp_path / "runtime"
     active_python = runtime / "active" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     active_python.parent.mkdir(parents=True)
@@ -273,6 +356,7 @@ def test_failed_install_preserves_existing_runtime(tmp_path: Path) -> None:
         worker_script=fake_probe_worker(tmp_path),
         allow_development_python=False,
     )
+    monkeypatch.setattr(manager, "_install_managed_python", lambda *args, **kwargs: Path(sys.executable))
 
     with pytest.raises(LocalRuntimeError, match="simulated network failure"):
         manager.install_all()
@@ -300,13 +384,16 @@ def test_pre_canceled_install_leaves_runtime_untouched(tmp_path: Path) -> None:
     assert not manager.active_dir.exists()
 
 
-def test_remove_runtime_updates_status(tmp_path: Path) -> None:
+def test_remove_runtime_updates_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manager = LocalRuntimeManager(
         tmp_path / "runtime",
         uv_path=str(fake_uv(tmp_path)),
         worker_script=fake_probe_worker(tmp_path),
         allow_development_python=False,
     )
+    monkeypatch.setattr(manager, "_install_managed_python", lambda *args, **kwargs: Path(sys.executable))
     manager.install_all()
 
     manager.remove()
