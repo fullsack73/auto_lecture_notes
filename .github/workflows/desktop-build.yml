@@ -32,7 +32,7 @@ jobs:
         if: runner.os == 'Linux'
         run: >-
           sudo apt-get update && sudo apt-get install --yes
-          patchelf python3-dev libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1
+          patchelf python3-dev libegl1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1
           libxcb-shape0 libxcb-xkb1 libxkbcommon-x11-0
       - name: Build macOS application
         if: runner.os == 'macOS'

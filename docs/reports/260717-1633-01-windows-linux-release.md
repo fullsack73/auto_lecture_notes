@@ -28,6 +28,7 @@
 - `python scripts/verify_lightweight_app.py`
 - GitHub Actions `workflow_dispatch` Windows/Linux 네이티브 패키지 빌드
 - 태그 빌드 후 GitHub Release asset 확인
+- Ubuntu smoke test 실행에 필요한 `libegl1` 설치 확인
 
 ## 리스크/이슈
 
