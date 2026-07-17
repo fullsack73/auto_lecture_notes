@@ -74,6 +74,10 @@ jobs:
         with:
           name: lecture-auto-linux
           path: release-assets
+      - name: Flatten release assets
+        run: |
+          find release-assets -mindepth 2 -type f -exec mv --target-directory=release-assets {} +
+          find release-assets -mindepth 1 -type d -empty -delete
       - name: Create checksums
         working-directory: release-assets
         run: sha256sum * > SHA256SUMS.txt

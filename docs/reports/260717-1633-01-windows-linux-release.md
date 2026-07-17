@@ -14,6 +14,7 @@
 - 기존 Nuitka standalone 및 Inno Setup/linuxdeploy 패키징을 GitHub Release 흐름에 연결
 - 고정 FFmpeg LGPL 바이너리 checksum 검증, 번들 및 라이선스 고지 유지
 - 태그 기반 GitHub Release 생성과 SHA-256 목록 게시
+- 다운로드된 Actions artifact의 중첩 폴더를 평탄화한 뒤 SHA-256 목록과 Release asset 게시
 - README와 설치/기술/제품 문서의 다운로드 안내
 
 ## 주요 변경 파일
@@ -28,6 +29,7 @@
 - `python scripts/verify_lightweight_app.py`
 - GitHub Actions `workflow_dispatch` Windows/Linux 네이티브 패키지 빌드
 - 태그 빌드 후 GitHub Release asset 확인
+- Windows/Linux artifact 경로가 중첩된 경우에도 checksum 생성과 Release 게시가 성공하는지 확인
 - Ubuntu smoke test 실행에 필요한 `libegl1` 설치 확인
 
 ## 리스크/이슈
