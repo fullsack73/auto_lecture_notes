@@ -2,6 +2,8 @@
 
 Desktop applications are built natively with Nuitka; cross-compilation is not supported. Each build includes the note template, add-on worker sources, `uv`, an LGPL-compatible FFmpeg/FFprobe pair, and its license/source notices. The build fails if heavyweight optional AI packages leak into the base app or the packaged GUI does not pass a smoke launch.
 
+Version tags matching `v*` build all native targets and publish the Windows x86_64 installer, Linux x86_64 AppImage/portable archive, and `SHA256SUMS.txt` to GitHub Releases. `workflow_dispatch` validates build artifacts without publishing a Release.
+
 ## macOS (Apple silicon)
 
 ```bash

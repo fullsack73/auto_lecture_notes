@@ -23,6 +23,18 @@ Notes always use the `structured-notes` format. With Ollama, the model does not 
 
 Detailed installation and provider setup live in [docs/setup.md](docs/setup.md). Korean setup docs are available at [docs/setup.ko.md](docs/setup.ko.md).
 
+### Download the Windows or Linux app
+
+Prebuilt 64-bit packages are available on the [latest GitHub Release](https://github.com/fullsack73/lecture-auto/releases/latest):
+
+- Windows installer: `LectureAuto-Setup.exe`
+- Linux AppImage: `LectureAuto-linux-x86_64.AppImage`
+- Linux portable archive: `LectureAuto-linux-x86_64.tar.gz`
+
+FFmpeg and FFprobe are included. These packages are not code-signed, so Windows may display a SmartScreen warning. SHA-256 hashes are provided in `SHA256SUMS.txt`.
+
+macOS and local development builds use the source instructions below.
+
 Clone the repository first:
 
 ```bash

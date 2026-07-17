@@ -23,6 +23,18 @@
 
 설치와 provider 설정 세부 내용은 [setup.ko.md](setup.ko.md)를 참고한다. 영문 설치 문서는 [setup.md](setup.md)에서 볼 수 있다.
 
+### Windows/Linux 앱 다운로드
+
+[최신 GitHub Release](https://github.com/fullsack73/lecture-auto/releases/latest)에서 미리 빌드된 64비트 패키지를 받을 수 있다.
+
+- Windows 설치 파일: `LectureAuto-Setup.exe`
+- Linux AppImage: `LectureAuto-linux-x86_64.AppImage`
+- Linux portable archive: `LectureAuto-linux-x86_64.tar.gz`
+
+FFmpeg와 FFprobe가 포함되어 있다. 코드 서명이 없어 Windows에서 SmartScreen 경고가 표시될 수 있다. `SHA256SUMS.txt`에서 SHA-256 값을 확인할 수 있다.
+
+macOS와 로컬 개발 빌드는 아래 소스 빌드 절차를 사용한다.
+
 먼저 저장소를 clone한다.
 
 ```bash

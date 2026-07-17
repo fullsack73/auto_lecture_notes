@@ -15,7 +15,7 @@
 - **macOS 미디어 도구**: 배포 앱은 ARM64 FFmpeg/FFprobe를 `Contents/MacOS/bin`에 포함한다. 빌드 스크립트는 고정된 소스와 checksum으로 GPL/nonfree 기능을 끈 바이너리를 준비하고 AVFoundation, MP3, 외부 Homebrew dylib 비의존성을 검증한다.
 - **Windows/Linux 미디어 도구**: 월말 보존되는 고정 BtbN LGPL 빌드와 SHA-256을 사용한다. Windows는 DirectShow, Linux는 PulseAudio 또는 ALSA 입력과 MP3 지원을 검증하며 FFmpeg 라이선스와 소스 정보를 앱에 포함한다.
 - **데스크톱 패키징**: 모든 플랫폼은 Nuitka standalone 빌드에서 구조화 노트 템플릿, add-on worker, `uv`, FFmpeg/FFprobe를 같은 상대 경로로 포함한다. Windows는 Inno Setup installer를, Linux는 tar.gz와 선택적 AppImage를 생성한다.
-- **데스크톱 제공 방식**: 로컬 네이티브 빌드와 GitHub Actions artifact 경로를 유지한다. macOS 로컬 앱은 ad-hoc 서명이고, Windows installer와 Linux AppImage도 코드 서명된 공개 배포본이 아니다.
+- **데스크톱 제공 방식**: 버전 태그는 Windows x86_64 installer, Linux x86_64 AppImage/portable archive와 SHA-256 목록을 GitHub Release에 게시한다. macOS 로컬 앱은 ad-hoc 서명이고 Windows/Linux 배포본도 코드 서명되지 않는다.
 
 ## B. 계층별 구현 규칙
 

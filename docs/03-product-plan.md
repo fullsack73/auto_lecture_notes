@@ -77,7 +77,7 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 - CLI/TUI/GUI는 같은 workspace와 metadata를 사용해야 한다.
 - 현재 범위는 개인 학습용 로컬 앱이다. 다중 사용자 계정, 서버 동기화, 협업 편집, 모바일 앱, 실시간 자막 UI는 제품 범위에 포함하지 않는다.
 - 녹음 권한, loopback/monitor device, provider key/model 설치는 실행 환경의 책임이다. macOS/Windows/Linux 데스크톱 빌드는 검증된 FFmpeg/FFprobe를 포함하지만 개발용 CLI는 해당 도구를 별도로 준비할 수 있다.
-- 데스크톱 앱은 각 운영체제에서 네이티브로 로컬 빌드할 수 있으며 CI도 동일한 스크립트로 artifact를 만든다. 결과물은 플랫폼 배포 인증서로 서명된 공개 배포본이 아니다.
+- 데스크톱 앱은 각 운영체제에서 네이티브로 로컬 빌드할 수 있다. 버전별 GitHub Release는 Windows x86_64 installer와 Linux x86_64 AppImage/portable archive를 제공하며, 현재 플랫폼 배포 인증서로 서명하지 않는다.
 
 ## F. 완료 기준
 

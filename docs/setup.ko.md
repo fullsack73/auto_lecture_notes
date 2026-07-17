@@ -36,9 +36,19 @@ source checkout에서 직접 실행:
 PYTHONPATH=src python -m lecture_auto.cli --help
 ```
 
+## Windows/Linux 데스크톱 앱 설치
+
+[최신 GitHub Release](https://github.com/fullsack73/lecture-auto/releases/latest)에서 운영체제에 맞는 64비트 설치 파일을 받는다. FFmpeg와 FFprobe가 포함되어 있다.
+
+- Windows: `LectureAuto-Setup.exe`를 실행한다. 코드 서명이 없어 SmartScreen 확인이 표시될 수 있다.
+- Linux AppImage: `chmod +x LectureAuto-linux-x86_64.AppImage` 실행 후 파일을 연다.
+- Linux portable archive: `LectureAuto-linux-x86_64.tar.gz`를 푼 뒤 `LectureAuto.dist/LectureAuto`를 실행한다.
+
+설치 후 앱 안에서 API key와 workspace를 설정한다. Windows/Linux 패키지는 버전 태그에서 자동 빌드되며 같은 Release의 `SHA256SUMS.txt`에서 SHA-256 값을 확인할 수 있다.
+
 ## macOS 데스크톱 앱 로컬 빌드
 
-현재 GitHub Release로 미리 빌드된 앱을 제공하지 않는다. 다음 조건을 만족하는 Mac에서 사용자가 직접 빌드한다.
+GitHub Release에서는 Windows와 Linux 설치 파일을 제공한다. macOS는 다음 조건을 만족하는 Mac에서 사용자가 직접 빌드한다.
 
 - Apple Silicon Mac (`uname -m` 결과가 `arm64`)
 - Python 3.11 이상 ARM64 환경

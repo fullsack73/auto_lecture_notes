@@ -38,9 +38,19 @@ Run directly from a source checkout:
 PYTHONPATH=src python -m lecture_auto.cli --help
 ```
 
+## Install the Windows or Linux Desktop App
+
+Download the matching 64-bit installer from the [latest GitHub Release](https://github.com/fullsack73/lecture-auto/releases/latest). FFmpeg and FFprobe are bundled.
+
+- Windows: run `LectureAuto-Setup.exe`. The installer is not code-signed, so SmartScreen may ask for confirmation.
+- Linux AppImage: run `chmod +x LectureAuto-linux-x86_64.AppImage`, then launch the file.
+- Linux portable archive: extract `LectureAuto-linux-x86_64.tar.gz`, then run `LectureAuto.dist/LectureAuto`.
+
+API keys and the workspace are configured inside the app after installation. Windows/Linux packages are built automatically from version tags; SHA-256 values are published as `SHA256SUMS.txt` in the same Release.
+
 ## Build the macOS Desktop App Locally
 
-Prebuilt desktop binaries are not currently published through GitHub Releases. Users build the app on a Mac that meets these requirements:
+GitHub Releases currently provide Windows and Linux installers. macOS users build the app on a Mac that meets these requirements:
 
 - Apple silicon (`uname -m` prints `arm64`)
 - An ARM64 Python 3.11 or newer
