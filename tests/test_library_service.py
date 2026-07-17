@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from lecture_auto.library_service import LibraryService
+from lecture_auto.library_service import LibraryService, _open_folder
 from lecture_auto.session_metadata_store import SessionMetadataStore
 from lecture_auto.session_service import SessionCommandError
 
@@ -103,24 +103,42 @@ def test_library_search_matches_note_content(library_service, temp_workspace):
     assert result.payload["sessions"][0]["session_id"] == "lecture-001"
 
 
-def test_library_open_calls_subprocess_for_existing_folder(library_service):
-    with patch("lecture_auto.library_service.subprocess.run") as run_mock:
+def test_library_open_calls_platform_handler_for_existing_folder(library_service):
+    with patch("lecture_auto.library_service._open_folder") as open_mock:
         result = library_service.library_open("lecture-001")
 
     assert result.command == "library open"
     assert result.payload["exists"] is True
-    run_mock.assert_called_once()
+    open_mock.assert_called_once()
 
 
 def test_library_open_transcript_and_recordings_targets(library_service):
-    with patch("lecture_auto.library_service.subprocess.run") as run_mock:
+    with patch("lecture_auto.library_service._open_folder") as open_mock:
         library_service.library_open("lecture-001", open_transcript=True)
-        first_args = run_mock.call_args[0][0]
+        transcript_path = open_mock.call_args.args[0]
         library_service.library_open("lecture-001", open_recordings=True)
-        second_args = run_mock.call_args[0][0]
+        recording_path = open_mock.call_args.args[0]
 
-    assert "transcripts" in first_args[1]
-    assert "recordings" in second_args[1]
+    assert "transcripts" in str(transcript_path)
+    assert "recordings" in str(recording_path)
+
+
+def test_open_folder_uses_windows_shell_without_process_exit_code(tmp_path):
+    with (
+        patch("lecture_auto.library_service.sys.platform", "win32"),
+        patch("lecture_auto.library_service.os.startfile", create=True) as startfile_mock,
+    ):
+        _open_folder(tmp_path)
+
+    startfile_mock.assert_called_once_with(str(tmp_path))
+
+
+def test_library_open_wraps_windows_shell_failure(library_service):
+    with patch("lecture_auto.library_service._open_folder", side_effect=OSError("shell unavailable")):
+        with pytest.raises(SessionCommandError) as exc_info:
+            library_service.library_open("lecture-001")
+
+    assert exc_info.value.code == "OPEN_FAILED"
 
 
 def test_library_open_raises_on_unknown_session(library_service):

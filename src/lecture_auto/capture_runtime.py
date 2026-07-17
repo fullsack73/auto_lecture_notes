@@ -165,7 +165,14 @@ class FFmpegCaptureRuntimeAdapter:
 
     def _run_device_command(self, command: list[str]) -> subprocess.CompletedProcess[str]:
         try:
-            return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
         except FileNotFoundError as exc:
             raise CaptureDependencyError(f"Required capture tool is unavailable: {command[0]}") from exc
 
@@ -204,6 +211,12 @@ class FFmpegCaptureRuntimeAdapter:
         in_audio = False
         for line in result.stderr.splitlines():
             lowered = line.lower()
+            typed_device = re.search(r'"([^"]+)"\s+\((audio|video)\)\s*$', line, re.IGNORECASE)
+            if typed_device:
+                name, media_type = typed_device.groups()
+                if media_type.lower() == "audio":
+                    devices.append(AudioDevice(name, name, self._device_source(name, "dshow"), "dshow"))
+                continue
             if "directshow audio devices" in lowered:
                 in_audio = True
                 continue
@@ -290,7 +303,7 @@ class FFmpegCaptureRuntimeAdapter:
         try:
             process = subprocess.Popen(
                 command,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -323,14 +336,31 @@ class FFmpegCaptureRuntimeAdapter:
 
         if interrupted:
             process.kill()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
             return
 
-        process.terminate()
+        if process.poll() is not None:
+            if process.returncode:
+                raise CaptureDeviceError("Audio capture process exited before recording completed")
+            return
+
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
+            process.communicate(input=b"q\n", timeout=5)
+        except subprocess.TimeoutExpired as exc:
             process.kill()
-            raise CaptureRuntimeError("Capture process did not stop gracefully")
+            process.wait()
+            raise CaptureRuntimeError("Capture process did not stop gracefully") from exc
+        except (BrokenPipeError, OSError) as exc:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            raise CaptureRuntimeError("Capture process control channel failed") from exc
+
+        if process.returncode:
+            raise CaptureDeviceError("Audio capture process exited before recording completed")
 
     def _stop_by_pid(self, *, process_id: int, interrupted: bool) -> None:
         try:

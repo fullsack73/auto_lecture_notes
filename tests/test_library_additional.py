@@ -178,14 +178,14 @@ def test_library_open_transcript_and_recordings_flags(workspace_with_store):
     )
 
     service = LibraryService(store=store, base_dir=base_dir)
-    with patch("lecture_auto.library_service.subprocess.run") as run_mock:
+    with patch("lecture_auto.library_service._open_folder") as open_mock:
         service.library_open("known", open_transcript=True)
-        transcript_path = run_mock.call_args[0][0][1]
+        transcript_path = open_mock.call_args.args[0]
         service.library_open("known", open_recordings=True)
-        recording_path = run_mock.call_args[0][0][1]
+        recording_path = open_mock.call_args.args[0]
 
-    assert "transcripts" in transcript_path
-    assert "recordings" in recording_path
+    assert "transcripts" in str(transcript_path)
+    assert "recordings" in str(recording_path)
 
 
 def test_sort_recent_orders_by_latest_timestamp(workspace_with_store):

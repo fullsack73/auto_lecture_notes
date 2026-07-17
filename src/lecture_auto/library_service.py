@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -7,6 +8,15 @@ from typing import Any
 
 from lecture_auto.session_service import CommandResult, SessionCommandError
 from lecture_auto.session_metadata_store import SessionMetadataStore
+
+
+def _open_folder(path: Path) -> None:
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=True)
+    elif sys.platform == "win32":
+        os.startfile(str(path))
+    else:
+        subprocess.run(["xdg-open", str(path)], check=True)
 
 
 def _recent_activity_key(session: dict[str, Any]) -> str:
@@ -228,13 +238,8 @@ class LibraryService:
 
         # Open folder based on platform
         try:
-            if sys.platform == "darwin":
-                subprocess.run(["open", str(target_folder)], check=True)
-            elif sys.platform == "win32":
-                subprocess.run(["explorer", str(target_folder)], check=True)
-            else:  # Linux and other Unix-like systems
-                subprocess.run(["xdg-open", str(target_folder)], check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            _open_folder(target_folder)
+        except (subprocess.CalledProcessError, OSError) as e:
             raise SessionCommandError(
                 code="OPEN_FAILED",
                 message=f"Failed to open folder: {target_folder}",
