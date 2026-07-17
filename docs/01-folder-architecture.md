@@ -21,7 +21,7 @@
 ├─ src/lecture_auto/                 # 배포되는 Python 패키지
 ├─ tests/                             # pytest 테스트
 ├─ scripts/                           # 빌드와 경량 검증 스크립트
-├─ deployment/                        # Windows/macOS 배포 보조 파일
+├─ deployment/                        # Windows/macOS/Linux 배포 보조 파일
 ├─ .github/workflows/                 # CI 및 데스크톱 빌드
 └─ pyproject.toml                     # 패키지, 의존성, entry point 설정
 ```

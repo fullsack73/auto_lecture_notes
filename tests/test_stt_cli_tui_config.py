@@ -17,8 +17,13 @@ def _config_path(home_dir: Path) -> Path:
     return home_dir / ".lecture_auto" / "config.json"
 
 
+def _set_test_home(monkeypatch, home_dir: Path) -> None:
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("USERPROFILE", str(home_dir))
+
+
 def test_cli_config_set_persists_stt_mode_and_local_model(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(
         app,
@@ -32,7 +37,7 @@ def test_cli_config_set_persists_stt_mode_and_local_model(tmp_path: Path, monkey
 
 
 def test_cli_config_set_rejects_invalid_stt_mode(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["config", "set", "--stt-mode", "invalid"])
 
@@ -41,7 +46,7 @@ def test_cli_config_set_rejects_invalid_stt_mode(tmp_path: Path, monkeypatch) ->
 
 
 def test_cli_config_set_rejects_unsupported_stt_api_provider(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["config", "set", "--stt-api-provider", "unsupported-provider"])
 
@@ -51,7 +56,7 @@ def test_cli_config_set_rejects_unsupported_stt_api_provider(tmp_path: Path, mon
 
 
 def test_cli_config_set_normalizes_deprecated_gemini_flash_lite_model(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(
         app,
@@ -64,7 +69,7 @@ def test_cli_config_set_normalizes_deprecated_gemini_flash_lite_model(tmp_path: 
 
 
 def test_cli_config_set_accepts_google_api_gemma4_model(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(
         app,
@@ -77,7 +82,7 @@ def test_cli_config_set_accepts_google_api_gemma4_model(tmp_path: Path, monkeypa
 
 
 def test_build_service_loads_stt_mode_and_local_model_from_config(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
     monkeypatch.delenv("STT_MODE", raising=False)
     monkeypatch.delenv("STT_LOCAL_MODEL", raising=False)
 
@@ -95,7 +100,7 @@ def test_build_service_loads_stt_mode_and_local_model_from_config(tmp_path: Path
 
 
 def test_build_service_env_overrides_config_for_stt_mode_and_model(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
     monkeypatch.setenv("STT_MODE", "api")
     monkeypatch.setenv("STT_LOCAL_MODEL", "base")
 
@@ -113,7 +118,7 @@ def test_build_service_env_overrides_config_for_stt_mode_and_model(tmp_path: Pat
 
 
 def test_build_service_loads_llm_model_and_thinking_from_config(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     monkeypatch.delenv("LLM_THINKING_LEVEL", raising=False)
 
@@ -140,7 +145,7 @@ def test_build_service_loads_llm_model_and_thinking_from_config(tmp_path: Path, 
 
 
 def test_build_service_env_overrides_llm_model_and_thinking(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
     monkeypatch.setenv("LLM_MODEL", "gemini-3.1-flash-lite-preview")
     monkeypatch.setenv("LLM_THINKING_LEVEL", "low")
 
@@ -167,7 +172,7 @@ def test_build_service_env_overrides_llm_model_and_thinking(tmp_path: Path, monk
 
 
 def test_build_service_loads_local_llm_provider_alias_from_config(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
     config_path = _config_path(tmp_path)
@@ -193,7 +198,7 @@ def test_build_service_loads_local_llm_provider_alias_from_config(tmp_path: Path
 
 
 def test_build_service_loads_google_api_llm_provider_alias_from_config(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
     config_path = _config_path(tmp_path)
@@ -219,7 +224,7 @@ def test_build_service_loads_google_api_llm_provider_alias_from_config(tmp_path:
 
 
 def test_cli_config_set_persists_dynaudnorm(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["config", "set", "--dynaudnorm-f", "200"])
 
@@ -229,7 +234,7 @@ def test_cli_config_set_persists_dynaudnorm(tmp_path: Path, monkeypatch) -> None
 
 
 def test_cli_config_set_rejects_out_of_range_dynaudnorm_f(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["config", "set", "--dynaudnorm-f", "5"])
 
@@ -238,7 +243,7 @@ def test_cli_config_set_rejects_out_of_range_dynaudnorm_f(tmp_path: Path, monkey
 
 
 def test_build_service_loads_dynaudnorm_from_config(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _set_test_home(monkeypatch, tmp_path)
 
     config_path = _config_path(tmp_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)

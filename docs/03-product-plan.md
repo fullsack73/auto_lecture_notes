@@ -45,7 +45,7 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 ### 녹음과 오디오
 
 - 마이크 또는 시스템 오디오 녹음
-- macOS FFmpeg/AVFoundation 및 loopback device 지원
+- macOS AVFoundation, Windows DirectShow, Linux PulseAudio/ALSA 기반 FFmpeg 녹음과 플랫폼별 loopback/monitor 장치 지원
 - 볼륨 정규화와 선택적 DeepFilterNet noise reduction
 
 ### 전사와 정제
@@ -76,8 +76,8 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 - API key는 사용자 설정에 보관하되 저장소나 일반 config JSON에 평문으로 남기지 않는다.
 - CLI/TUI/GUI는 같은 workspace와 metadata를 사용해야 한다.
 - 현재 범위는 개인 학습용 로컬 앱이다. 다중 사용자 계정, 서버 동기화, 협업 편집, 모바일 앱, 실시간 자막 UI는 제품 범위에 포함하지 않는다.
-- 녹음 권한, loopback device, provider key/model 설치는 실행 환경의 책임이다. macOS 배포 앱은 FFmpeg/FFprobe를 포함하지만 개발용 CLI와 다른 플랫폼 패키지는 해당 도구를 별도로 준비할 수 있다.
-- 현재 데스크톱 앱은 GitHub Release 바이너리 대신 Apple Silicon Mac에서의 로컬 소스 빌드 절차를 제공한다. 로컬 결과물은 Developer ID 서명·Apple 공증 배포본이 아니다.
+- 녹음 권한, loopback/monitor device, provider key/model 설치는 실행 환경의 책임이다. macOS/Windows/Linux 데스크톱 빌드는 검증된 FFmpeg/FFprobe를 포함하지만 개발용 CLI는 해당 도구를 별도로 준비할 수 있다.
+- 데스크톱 앱은 각 운영체제에서 네이티브로 로컬 빌드할 수 있다. 버전별 GitHub Release는 Windows x86_64 installer와 Linux x86_64 AppImage/portable archive를 제공하며, 현재 플랫폼 배포 인증서로 서명하지 않는다.
 
 ## F. 완료 기준
 

@@ -103,4 +103,8 @@ class TestPPTXConversion:
             assert result in ("converted", "unsupported")
         except DocumentConversionError as e:
             # Expected if dependencies are missing
-            assert "Required libraries not installed" in str(e) or "Failed to convert" in str(e)
+            assert (
+                "Required libraries not installed" in str(e)
+                or "Failed to convert" in str(e)
+                or "LibreOffice is not installed" in str(e)
+            )

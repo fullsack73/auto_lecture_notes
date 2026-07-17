@@ -23,13 +23,13 @@ def mock_ffmpeg_output():
 
 
 def test_resolve_device_index_system_audio(mock_ffmpeg_output) -> None:
-    adapter = FFmpegCaptureRuntimeAdapter(capture_source="system_audio")
+    adapter = FFmpegCaptureRuntimeAdapter(capture_source="system_audio", backend="avfoundation", platform="darwin")
     idx = adapter._resolve_device_index()
     assert idx == "1"
 
 
 def test_resolve_device_index_microphone(mock_ffmpeg_output) -> None:
-    adapter = FFmpegCaptureRuntimeAdapter(capture_source="microphone")
+    adapter = FFmpegCaptureRuntimeAdapter(capture_source="microphone", backend="avfoundation", platform="darwin")
     idx = adapter._resolve_device_index()
     assert idx == "0"
 
@@ -40,7 +40,7 @@ def test_resolve_device_index_system_audio_not_found() -> None:
 """
     with patch("subprocess.run") as mock_run:
         mock_run.return_value.stderr = output
-        adapter = FFmpegCaptureRuntimeAdapter(capture_source="system_audio")
+        adapter = FFmpegCaptureRuntimeAdapter(capture_source="system_audio", backend="avfoundation", platform="darwin")
         with pytest.raises(CaptureDeviceError, match="No system audio loopback device found"):
             adapter._resolve_device_index()
 
@@ -51,6 +51,6 @@ def test_resolve_device_index_microphone_fallback() -> None:
 """
     with patch("subprocess.run") as mock_run:
         mock_run.return_value.stderr = output
-        adapter = FFmpegCaptureRuntimeAdapter(capture_source="microphone")
+        adapter = FFmpegCaptureRuntimeAdapter(capture_source="microphone", backend="avfoundation", platform="darwin")
         idx = adapter._resolve_device_index()
         assert idx == "2"  # falls back to the first available if no explicit mic found

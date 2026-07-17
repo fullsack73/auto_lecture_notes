@@ -5,6 +5,9 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -25,12 +28,22 @@ jobs:
           python-version: "3.11"
       - name: Install build dependencies
         run: python -m pip install -e ".[build]"
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: >-
+          sudo apt-get update && sudo apt-get install --yes
+          patchelf python3-dev libegl1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1
+          libxcb-shape0 libxcb-xkb1 libxkbcommon-x11-0
       - name: Build macOS application
         if: runner.os == 'macOS'
         run: scripts/build_macos_app.sh
-      - name: Build Windows/Linux application
-        if: runner.os != 'macOS'
-        run: pyside6-deploy src/lecture_auto/gui/app.py --name LectureAuto --force --keep-deployment-files
+      - name: Build Windows application and installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build_windows_app.ps1 -Installer
+      - name: Build Linux application and AppImage
+        if: runner.os == 'Linux'
+        run: bash scripts/build_linux_app.sh --appimage
       - name: Package macOS DMG
         if: runner.os == 'macOS'
         shell: bash
@@ -39,33 +52,37 @@ jobs:
           test -n "$APP"
           mkdir -p dist-release
           hdiutil create -volname "Lecture Auto" -srcfolder "$APP" -ov -format UDZO dist-release/LectureAuto.dmg
-      - name: Package Windows installer
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          $built = Get-ChildItem -Recurse -Filter LectureAuto.exe | Select-Object -First 1
-          if (-not $built) { throw "LectureAuto.exe not found" }
-          New-Item -ItemType Directory -Force dist/LectureAuto | Out-Null
-          Copy-Item $built.Directory.FullName/* dist/LectureAuto -Recurse -Force
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" deployment/windows.iss
-      - name: Package Linux AppImage
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          built=$(find . -type f -name LectureAuto -perm -111 -print -quit)
-          test -n "$built"
-          mkdir -p LectureAuto.AppDir/usr/bin dist-release
-          cp -a "$(dirname "$built")"/* LectureAuto.AppDir/usr/bin/
-          printf '#!/bin/sh\nexec "$APPDIR/usr/bin/LectureAuto" "$@"\n' > LectureAuto.AppDir/AppRun
-          chmod +x LectureAuto.AppDir/AppRun
-          curl -L -o linuxdeploy.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy.AppImage
-          ./linuxdeploy.AppImage --appdir LectureAuto.AppDir --output appimage
-          mv ./*.AppImage dist-release/LectureAuto.AppImage
       - uses: actions/upload-artifact@v4
         with:
           name: lecture-auto-${{ matrix.artifact }}
+          if-no-files-found: error
           path: |
             dist-release/*
             dist-installer/*
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: lecture-auto-windows
+          path: release-assets
+      - uses: actions/download-artifact@v5
+        with:
+          name: lecture-auto-linux
+          path: release-assets
+      - name: Create checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS.txt
+      - name: Publish release and assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release-assets/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "Lecture Auto $GITHUB_REF_NAME"
+          --generate-notes
+          --verify-tag

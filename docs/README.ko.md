@@ -1,6 +1,8 @@
 # Lecture Auto
 
-컴퓨터가 수업을 대신 듣게 해주는 CLI/TUI 도구.
+[English documentation](../README.md)
+
+컴퓨터가 수업을 대신 듣게 해주는 데스크톱 GUI, CLI, TUI 애플리케이션.
 
 녹음한 강의 오디오를 전사하고, 전사문을 다듬고, 구조화된 강의 노트까지 자동으로 만든다. 수업을 사람이 실시간으로 정리하는 대신, 프로그램이 `recording -> transcript -> structured notes` 흐름을 맡는다.
 
@@ -13,23 +15,94 @@
 - LLM으로 구조화 노트 생성
 - PDF/PPT/PPTX 수업 자료를 세션에 첨부
 - 생성된 노트, 전사문, 녹음 파일 검색/열기
-- CLI와 대화형 TUI 둘 다 지원
+- 데스크톱 GUI, CLI 명령, 대화형 TUI 지원
 
 노트는 항상 `structured-notes` 형식으로 생성된다. Ollama 사용 시에는 모델이 Markdown을 직접 쓰지 않고, 섹션별 JSON을 만든 뒤 앱이 최종 Markdown을 렌더링한다.
 
-## Quick Start
+## How to Install
 
-설치와 provider 설정 세부 내용은 [setup.ko.md](setup.ko.md)를 참고한다.
+설치와 provider 설정 세부 내용은 [setup.ko.md](setup.ko.md)를 참고한다. 영문 설치 문서는 [setup.md](setup.md)에서 볼 수 있다.
 
-사전 요구사항: `pip install -e .`를 실행하기 전에 Rust를 설치해야 한다. 일부 Python dependency가 native extension을 빌드하면서 Rust toolchain을 요구한다. [rustup.rs](https://rustup.rs/)에서 설치한 뒤, `cargo`가 `PATH`에서 잡히도록 터미널을 다시 연다.
+### Windows/Linux 앱 다운로드
+
+[최신 GitHub Release](https://github.com/fullsack73/lecture-auto/releases/latest)에서 미리 빌드된 64비트 패키지를 받을 수 있다.
+
+- Windows 설치 파일: `LectureAuto-Setup.exe`
+- Linux AppImage: `LectureAuto-linux-x86_64.AppImage`
+- Linux portable archive: `LectureAuto-linux-x86_64.tar.gz`
+
+FFmpeg와 FFprobe가 포함되어 있다. 코드 서명이 없어 Windows에서 SmartScreen 경고가 표시될 수 있다. `SHA256SUMS.txt`에서 SHA-256 값을 확인할 수 있다.
+
+macOS와 로컬 개발 빌드는 아래 소스 빌드 절차를 사용한다.
+
+먼저 저장소를 clone한다.
 
 ```bash
 git clone https://github.com/fullsack73/lecture-auto.git
 cd lecture-auto
-pip install -e .
 ```
 
-기본 설정:
+### 1. 데스크톱 앱 로컬 빌드 및 실행
+
+빌드 전에 Python 3.11 이상과 Rust toolchain을 설치한다. 데스크톱 앱은 교차 컴파일하지 않고 실행할 운영체제에서 네이티브로 빌드한다.
+
+#### macOS (Apple Silicon)
+
+Xcode Command Line Tools를 먼저 설치한 뒤 앱을 빌드하고 설치한다.
+
+```bash
+xcode-select --install  # Command Line Tools가 이미 있으면 생략
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+scripts/build_macos_app.sh --install
+open "/Applications/Lecture Auto.app"
+```
+
+빌드는 ARM64 FFmpeg/FFprobe를 앱에 포함하고 로컬 실행용 ad-hoc 서명을 적용한다. Developer ID 서명이나 Apple 공증을 거친 공개 배포본은 아니다. 요구사항과 문제 해결은 [macOS 빌드 가이드](setup.ko.md#macos-데스크톱-앱-로컬-빌드)를 참고한다.
+
+#### Windows (x86_64)
+
+PowerShell에서 빌드 환경을 만들고 네이티브 빌드를 실행한다.
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[build]"
+./scripts/build_windows_app.ps1
+./build/windows/LectureAuto.dist/LectureAuto.exe
+```
+
+Inno Setup 6가 설치되어 있으면 `-Installer`를 추가해 `dist-installer/LectureAuto-Setup.exe`도 만들 수 있다. 네이티브 컴파일러 요구사항은 [Windows 빌드 가이드](setup.ko.md#windows-데스크톱-앱-로컬-빌드)를 참고한다.
+
+#### Linux (x86_64 또는 ARM64)
+
+[Linux 빌드 가이드](setup.ko.md#linux-데스크톱-앱-로컬-빌드)에 나온 compiler, `patchelf`, 배포판 패키지를 설치한 뒤 실행한다.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[build]'
+bash scripts/build_linux_app.sh
+build/linux/LectureAuto.dist/LectureAuto
+```
+
+`--appimage`를 지정하면 portable tar archive와 함께 AppImage도 만든다. Windows/Linux 빌드는 checksum으로 검증한 LGPL FFmpeg/FFprobe와 라이선스 고지를 포함한다.
+
+PySide6 데스크톱 앱은 CLI/TUI와 같은 workspace와 세션 데이터를 사용한다. 세션 관리, 녹음, 자료 import, 오디오 정제, 전사, 전사문 정제, 노트 생성, library 검색, 안전한 API key 저장, 로컬 모델 관리를 지원한다.
+
+### 2. CLI/TUI 설치 및 사용
+
+source checkout에서 설치하기 전에 Python 3.11 이상, FFmpeg, Rust를 설치한다. 일부 Python dependency가 native extension을 빌드하면서 Rust toolchain을 요구한다. Rust는 [rustup.rs](https://rustup.rs/)에서 설치하고, `cargo`가 `PATH`에서 잡히도록 터미널을 다시 연다.
+
+```bash
+python -m pip install -e .
+```
+
+workspace와 provider를 설정한다.
 
 ```bash
 lecture-auto config set \
@@ -42,37 +115,13 @@ lecture-auto config set \
   --gemini-api-key "your-google-api-key"
 ```
 
-TUI 실행:
+대화형 TUI를 연다.
 
 ```bash
 lecture-auto
 ```
 
-데스크톱 GUI 실행:
-
-```bash
-lecture-auto-gui
-```
-
-### macOS 앱 로컬 빌드
-
-미리 빌드된 데스크톱 바이너리는 배포하지 않는다. Apple Silicon Mac에서 소스를 직접 빌드하고 설치한다.
-
-```bash
-xcode-select --install  # Command Line Tools가 이미 있으면 생략
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[build]'
-scripts/build_macos_app.sh --install
-open "/Applications/Lecture Auto.app"
-```
-
-빌드 스크립트는 ARM64 FFmpeg/FFprobe를 준비해 앱에 포함하고 로컬 실행용 ad-hoc 서명을 적용한다. Developer ID 서명이나 Apple 공증을 거친 공개 배포본은 아니다. 요구사항과 문제 해결은 [setup.ko.md](setup.ko.md#macos-데스크톱-앱-로컬-빌드)를 참고한다.
-
-GUI는 기존 CLI/TUI와 같은 workspace와 세션 데이터를 사용한다. 첫 실행에서 저장 위치와 STT/LLM 방식을 선택하고, 이후 설정 화면에서 녹음 장치, API key, 로컬 Whisper 모델, Ollama 연결을 관리한다. API key는 운영체제 credential store에 저장되며 `config.json`에는 기록되지 않는다.
-
-CLI로 한 세션 처리:
+CLI로 전체 세션을 처리한다.
 
 ```bash
 lecture-auto session create \
@@ -157,7 +206,7 @@ lecture-auto capture start <session_id>
 lecture-auto capture stop <session_id>
 ```
 
-macOS FFmpeg/AVFoundation 기반 녹음. 시스템 오디오를 녹음하려면 BlackHole, Loopback, Soundflower 같은 loopback 장치가 필요할 수 있다.
+녹음은 macOS에서 FFmpeg/AVFoundation, Windows에서 DirectShow, Linux에서 PulseAudio 또는 ALSA를 사용한다. 시스템 오디오 녹음에는 loopback 또는 monitor 장치가 필요할 수 있다.
 
 ### Transcription
 

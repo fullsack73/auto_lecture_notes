@@ -1,21 +1,42 @@
 # Desktop builds
 
-Prebuilt desktop binaries are not published. The supported desktop path is a local native build on an Apple Silicon Mac; desktop bundles are not cross-compiled.
+Desktop applications are built natively with Nuitka; cross-compilation is not supported. Each build includes the note template, add-on worker sources, `uv`, an LGPL-compatible FFmpeg/FFprobe pair, and its license/source notices. The build fails if heavyweight optional AI packages leak into the base app or the packaged GUI does not pass a smoke launch.
+
+Version tags matching `v*` build all native targets and publish the Windows x86_64 installer, Linux x86_64 AppImage/portable archive, and `SHA256SUMS.txt` to GitHub Releases. `workflow_dispatch` validates build artifacts without publishing a Release.
+
+## macOS (Apple silicon)
 
 ```bash
-xcode-select --install  # Skip if already installed.
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[build]'
 scripts/build_macos_app.sh --install
 open "/Applications/Lecture Auto.app"
 ```
 
-Without `--install`, the result remains at `build/macos/LectureAuto.app`. The script applies an ad-hoc signature for local execution; it does not create a Developer ID-signed or notarized release.
+Without `--install`, the result remains at `build/macos/LectureAuto.app`. The script builds verified ARM64 FFmpeg/FFprobe binaries from pinned sources, applies an ad-hoc signature, and does not create a Developer ID-signed or notarized release.
 
-The macOS build runs `scripts/prepare_ffmpeg_macos.sh` and bundles verified arm64 FFmpeg/FFprobe binaries plus their license notices. The prepared build disables GPL/nonfree features, retains AVFoundation and MP3 support, and must not link to Homebrew paths.
+## Windows (x86_64)
 
-Windows and Linux packaging is not an end-user distribution path. Any future local packaging work must copy FFmpeg/FFprobe to `lecture_auto/bin` (`.exe` on Windows), use an LGPL-compatible build, and ship its license notices.
+```powershell
+./scripts/build_windows_app.ps1
+./build/windows/LectureAuto.dist/LectureAuto.exe
+```
 
-The macOS script invokes Nuitka directly, forces a native arm64 target, and disables Nuitka's downloaded ccache. This avoids an x86_64 ccache binary trying to invoke arm64-only Command Line Tools.
+Pass `-Installer` when Inno Setup 6 is installed to create `dist-installer/LectureAuto-Setup.exe`:
+
+```powershell
+./scripts/build_windows_app.ps1 -Installer
+```
+
+## Linux (x86_64 or ARM64)
+
+```bash
+bash scripts/build_linux_app.sh
+build/linux/LectureAuto.dist/LectureAuto
+```
+
+The script always creates a portable archive under `dist-release/`. Pass `--appimage` to also create an AppImage:
+
+```bash
+bash scripts/build_linux_app.sh --appimage
+```
+
+Windows/Linux FFmpeg binaries come from a pinned monthly BtbN LGPL build and are SHA-256 verified. Linux AppImage tooling is also fetched by immutable GitHub asset ID and checksum.

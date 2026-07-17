@@ -50,7 +50,7 @@ def test_deepfilter_audio_input_yields_filtered_audio_output(tmp_path: Path) -> 
     source.write_bytes(b"source audio")
 
     def fake_run(command, **kwargs):
-        if command[0] == "ffmpeg":
+        if Path(command[0]).stem == "ffmpeg":
             Path(command[-1]).write_bytes(b"converted wav")
             return SimpleNamespace(returncode=0, stderr="")
 

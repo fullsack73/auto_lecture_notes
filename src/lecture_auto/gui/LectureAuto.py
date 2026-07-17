@@ -1,4 +1,4 @@
-"""Named macOS build entry point for the Lecture Auto app bundle."""
+"""Named native build entry point for the Lecture Auto desktop application."""
 
 from lecture_auto.gui.app import main
 

@@ -94,6 +94,17 @@ def _normalized_arch(value: str | None) -> str:
     return {"amd64": "x86_64", "aarch64": "arm64"}.get(lowered, lowered)
 
 
+def _compiled_data_roots(executable: Path | None = None) -> tuple[Path, ...]:
+    """Return data roots for Nuitka standalone folders and macOS app bundles."""
+    executable_dir = Path(executable or sys.executable).resolve().parent
+    candidates = (
+        executable_dir,
+        executable_dir.parent / "MacOS",
+        executable_dir.parent / "Resources",
+    )
+    return tuple(dict.fromkeys(candidates))
+
+
 class LocalRuntimeManager:
     _mutation_lock = threading.Lock()
 
@@ -122,26 +133,20 @@ class LocalRuntimeManager:
 
     def _resolve_worker_script(self) -> Path:
         if "__compiled__" in globals():
-            contents = Path(sys.executable).resolve().parent.parent
-            for candidate in (
-                contents / "MacOS" / "local_ai_worker.py",
-                contents / "Resources" / "local_ai_worker.py",
-            ):
+            candidates = tuple(root / "local_ai_worker.py" for root in _compiled_data_roots())
+            for candidate in candidates:
                 if candidate.exists():
                     return candidate
-            return contents / "Resources" / "local_ai_worker.py"
+            return candidates[0]
         return Path(__file__).with_name("local_ai_worker.py")
 
     def _resolve_gemini_worker_script(self) -> Path:
         if "__compiled__" in globals():
-            contents = Path(sys.executable).resolve().parent.parent
-            for candidate in (
-                contents / "MacOS" / "gemini_addon_worker.py",
-                contents / "Resources" / "gemini_addon_worker.py",
-            ):
+            candidates = tuple(root / "gemini_addon_worker.py" for root in _compiled_data_roots())
+            for candidate in candidates:
                 if candidate.exists():
                     return candidate
-            return contents / "Resources" / "gemini_addon_worker.py"
+            return candidates[0]
         return Path(__file__).with_name("gemini_addon_worker.py")
 
     def _load_external_python(self) -> str | None:
@@ -293,10 +298,17 @@ class LocalRuntimeManager:
             env = dict(os.environ)
             env["UV_PYTHON_INSTALL_DIR"] = str(self.python_install_dir)
             env["UV_CACHE_DIR"] = str(self.cache_dir)
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
             self.runtime_dir.mkdir(parents=True, exist_ok=True)
             self._step(progress, "python", 0, 4, "Preparing managed Python 3.11")
             token.raise_if_cancelled()
-            self._run_command([str(uv), "python", "install", "3.11", "--install-dir", str(self.python_install_dir)], env, progress, token)
+            self._install_managed_python(
+                [str(uv), "python", "install", "3.11", "--install-dir", str(self.python_install_dir)],
+                env,
+                progress,
+                token,
+            )
             self._step(progress, "venv", 1, 4, "Creating temporary runtime")
             self._run_command([str(uv), "venv", str(staging), "--python", "3.11", "--managed-python"], env, progress, token)
             packages: list[str] = []
@@ -412,11 +424,7 @@ class LocalRuntimeManager:
             candidates.append(Path(self.uv_path))
         if "__compiled__" in globals():
             name = "uv.exe" if sys.platform == "win32" else "uv"
-            contents = Path(sys.executable).resolve().parent.parent
-            candidates.extend((
-                contents / "MacOS" / "bin" / name,
-                contents / "Resources" / "bin" / name,
-            ))
+            candidates.extend(root / "bin" / name for root in _compiled_data_roots())
         resolved = shutil.which("uv")
         if resolved:
             candidates.append(Path(resolved))
@@ -440,12 +448,18 @@ class LocalRuntimeManager:
         if not selected_worker.is_file():
             raise LocalRuntimeError(f"Add-on worker script is missing: {selected_worker}")
         token = cancellation_token or CancellationToken()
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         process = subprocess.Popen(
             [str(python), str(selected_worker)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
             bufsize=1,
         )
         assert process.stdin is not None and process.stdout is not None
@@ -508,6 +522,26 @@ class LocalRuntimeManager:
         if progress:
             progress(stage, completed, total, message)
 
+    def _install_managed_python(
+        self,
+        command: list[str],
+        env: dict[str, str],
+        progress: RuntimeProgress | None,
+        token: CancellationToken,
+    ) -> None:
+        try:
+            self._run_command(command, env, progress, token)
+        except LocalRuntimeError as exc:
+            message = str(exc).lower()
+            windows_link_error = sys.platform == "win32" and (
+                "minor version link directory" in message or "os error 448" in message
+            )
+            if not windows_link_error:
+                raise
+            token.raise_if_cancelled()
+            self._step(progress, "python", 0, 4, "Retrying managed Python link creation")
+            self._run_command(command, env, progress, token)
+
     @staticmethod
     def _run_command(
         command: list[str],
@@ -515,7 +549,18 @@ class LocalRuntimeManager:
         progress: RuntimeProgress | None,
         token: CancellationToken,
     ) -> None:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env, bufsize=1)
+        if Path(command[0]).suffix.lower() == ".py":
+            command = [sys.executable, *command]
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            bufsize=1,
+        )
         assert process.stdout is not None
         log_tail: list[str] = []
         while True:
