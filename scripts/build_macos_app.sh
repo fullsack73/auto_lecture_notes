@@ -71,7 +71,7 @@ rm -rf "$BUILD_DIR/app.build" "$BUILD_DIR/app.dist" "$BUILD_DIR/app.app" \
   --macos-target-arch=arm64 \
   --macos-app-name="Lecture Auto" \
   --macos-signed-app-name="com.anarchytoast.lectureauto" \
-  --macos-app-version=0.1.0 \
+  --macos-app-version=0.1.1 \
   --macos-app-icon="$ICON_ICNS" \
   --macos-app-protected-resource="NSMicrophoneUsageDescription:Lecture Auto records lecture audio selected by the user." \
   --output-dir="$BUILD_DIR" \
