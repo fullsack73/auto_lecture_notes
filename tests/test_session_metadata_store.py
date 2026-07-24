@@ -45,7 +45,9 @@ def test_upsert_persists_deterministic_payload_and_roundtrips(tmp_path: Path) ->
         '[{"session_id":"session-001","date":"2026-03-06","title":"Intro to AI",'
         '"course":"CS101","status":"idle","job_status":null,"job_attempts":0,'
         '"job_timestamps":{},"job_error_code":null,"import_source_audio_path":null,'
-        '"audio_file_path":null,"refined_audio_file_path":null,"transcript_file_path":null,"material_file_path":null,"transcription_status":null,'
+        '"audio_file_path":null,"refined_audio_file_path":null,"audio_refinement_operations":[],'
+        '"transcript_file_path":null,'
+        '"transcript_metadata_file_path":null,"material_file_path":null,"transcription_status":null,'
         '"transcription_error_category":null,"transcription_retry_count":0,'
         '"timestamps":{"created_at":"2026-03-06"},'
         '"naming_pending":false}]'
@@ -107,7 +109,9 @@ def test_normalize_adds_job_defaults_for_backward_compatible_payloads(tmp_path: 
     assert saved["job_timestamps"] == {}
     assert saved["job_error_code"] is None
     assert saved["import_source_audio_path"] is None
+    assert saved["audio_refinement_operations"] == []
     assert saved["transcript_file_path"] is None
+    assert saved["transcript_metadata_file_path"] is None
     assert saved["transcription_status"] is None
     assert saved["transcription_error_category"] is None
     assert saved["transcription_retry_count"] == 0

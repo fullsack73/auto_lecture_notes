@@ -46,7 +46,9 @@ src/lecture_auto/
 ├─ library_service.py            # 세션 산출물 검색/열기/목록
 ├─ capture_runtime.py            # FFmpeg/플랫폼별 녹음 실행
 ├─ audio_amplifier.py            # 오디오 정규화/증폭
+├─ audio_preflight.py            # loudness/clipping/silence 기반 STT 입력 진단
 ├─ stt_config.py, stt_runtime.py # STT 설정과 provider 실행 경로
+├─ stt_quality.py                # confidence/반복 기반 의심 구간 판정
 ├─ deepgram_adapter.py           # Deepgram adapter
 ├─ whisper_adapter.py            # local Whisper/faster-whisper adapter
 ├─ llm_config.py, llm_adapter.py # LLM 설정, 전사 정제, 노트 생성
@@ -89,9 +91,15 @@ workspace/
 ├─ metadata/sessions.json
 ├─ recordings/[course/]session-id.wav|mp3
 ├─ transcripts/[course/]session-id-raw.md
+├─ transcripts/[course/]session-id-raw.stt.json
 ├─ transcripts/[course/]session-id-edited.md
 ├─ materials/[course/]session-id.pdf
 └─ notes/[course/]session-id.md
 ```
 
 workspace 파일은 사용자 데이터이므로 저장소에 커밋하지 않는다. 코드에는 절대 경로를 하드코딩하지 않고 `AppConfig.workspace`와 path helper를 사용한다.
+
+`session-id-raw.stt.json`은 raw Markdown 형식을 바꾸지 않고 provider/runtime 설정,
+segment timestamp, confidence, 선택적 word timestamp를 보존하는 versioned sidecar다.
+개발용 `scripts/benchmark_local_stt.py`는 저장소 밖 또는 ignore 대상 녹음 corpus를 읽고
+`build/stt-benchmarks/`에만 비교 결과를 만든다.

@@ -202,6 +202,31 @@ lecture-auto config set \
   --stt-language korean
 ```
 
+CPU 빠른 profile 예시:
+
+```bash
+lecture-auto config set \
+  --stt-mode local \
+  --stt-local-model small \
+  --stt-device cpu \
+  --stt-compute-type int8 \
+  --stt-batch-size 4 \
+  --stt-beam-size 1 \
+  --stt-temperature 0 \
+  --stt-vad-filter \
+  --stt-vad-min-silence-ms 1000 \
+  --no-stt-condition-on-previous-text
+```
+
+`batch-size > 1`은 VAD와 함께 사용해야 한다. 메모리 부족 시 worker는 batch를
+절반씩 줄여 재시도하며, 실제 설정은 전사 결과의 `local_runtime`과
+`*-raw.stt.json` sidecar에 기록된다. 작은 모델의 batch 전사에서 반복이 감지되면
+`small` 이상 모델을 쓰거나 batch 1로 비교한다.
+
+NVIDIA profile은 `--stt-device cuda --stt-compute-type float16`을 쓸 수 있다.
+CTranslate2와 호환되는 CUDA 12 cuBLAS/cuDNN DLL이 없으면 명시적으로 실패한다.
+이때 `--stt-device cpu --stt-compute-type int8`로 바꾸거나 CUDA runtime을 설치한다.
+
 ## LLM Setup
 
 ### Google API
@@ -294,6 +319,18 @@ STT_MODE
 STT_API_PROVIDER
 STT_API_KEY
 STT_LOCAL_MODEL
+STT_LOCAL_DEVICE
+STT_COMPUTE_TYPE
+STT_BATCH_SIZE
+STT_BEAM_SIZE
+STT_TEMPERATURE
+STT_VAD_FILTER
+STT_VAD_MIN_SILENCE_MS
+STT_CONDITION_ON_PREVIOUS_TEXT
+STT_WORD_TIMESTAMPS
+STT_HOTWORDS
+STT_CPU_THREADS
+STT_NUM_WORKERS
 USE_DYNAUDNORM
 LLM_PROVIDER
 LLM_MODEL

@@ -15,7 +15,12 @@ from lecture_auto.llm_config import (
 )
 from lecture_auto.session_metadata_store import SessionMetadataStore
 from lecture_auto.session_service import SessionCommandError, SessionService
-from lecture_auto.stt_config import SUPPORTED_API_PROVIDERS
+from lecture_auto.stt_config import (
+    STTConfig,
+    SUPPORTED_API_PROVIDERS,
+    SUPPORTED_COMPUTE_TYPES,
+    SUPPORTED_LOCAL_DEVICES,
+)
 from lecture_auto.library_service import LibraryService
 
 app = typer.Typer(help="Lecture automation CLI", invoke_without_command=True)
@@ -275,6 +280,18 @@ def config_set(
     stt_api_key: str | None = typer.Option(None, "--stt-api-key", help="STT API key"),
     stt_mode: str | None = typer.Option(None, "--stt-mode", help="STT mode (api or local)"),
     stt_local_model: str | None = typer.Option(None, "--stt-local-model", help="Local Whisper model name (e.g. base, medium, large-v3)"),
+    stt_local_device: str | None = typer.Option(None, "--stt-device", help="Local STT device (auto, cpu, cuda)"),
+    stt_compute_type: str | None = typer.Option(None, "--stt-compute-type", help="Local STT compute type"),
+    stt_batch_size: int | None = typer.Option(None, "--stt-batch-size", help="Local STT batch size (1 to 64)"),
+    stt_beam_size: int | None = typer.Option(None, "--stt-beam-size", help="Local STT beam size (1 to 20)"),
+    stt_temperature: float | None = typer.Option(None, "--stt-temperature", help="Local STT temperature (0.0 to 1.0)"),
+    stt_vad_filter: bool | None = typer.Option(None, "--stt-vad-filter/--no-stt-vad-filter", help="Enable Silero VAD for local STT"),
+    stt_vad_min_silence_ms: int | None = typer.Option(None, "--stt-vad-min-silence-ms", help="VAD minimum silence duration in milliseconds"),
+    stt_condition_on_previous_text: bool | None = typer.Option(None, "--stt-condition-on-previous-text/--no-stt-condition-on-previous-text", help="Condition each Whisper window on previous text"),
+    stt_word_timestamps: bool | None = typer.Option(None, "--stt-word-timestamps/--no-stt-word-timestamps", help="Collect local STT word timestamps and confidence"),
+    stt_hotwords: str | None = typer.Option(None, "--stt-hotwords", help="Whitespace-separated local STT hotwords"),
+    stt_cpu_threads: int | None = typer.Option(None, "--stt-cpu-threads", help="Local STT CPU thread count; 0 uses runtime default"),
+    stt_num_workers: int | None = typer.Option(None, "--stt-num-workers", help="Local STT parallel worker count"),
     gemini_api_key: str | None = typer.Option(None, "--gemini-api-key", help="Google API key for hosted LLMs"),
     llm_model_name: str | None = typer.Option(None, "--llm-model", help="LLM model name (Gemini or Gemma 4 hosted model ID)"),
     llm_thinking_level: str | None = typer.Option(None, "--llm-thinking-level", help="LLM thinking level (minimal, low, medium, high)"),
@@ -295,6 +312,7 @@ def config_set(
             pass
     
     updated = False
+    stt_perf_updated = False
     if workspace is not None:
         config_data["workspace"] = str(Path(workspace).expanduser().resolve())
         typer.echo(f"Global workspace set to: {config_data['workspace']}")
@@ -348,6 +366,95 @@ def config_set(
             del config_data["stt_local_model"]
             typer.echo("Global STT local model cleared.")
             updated = True
+
+    if stt_local_device is not None:
+        normalized_device = stt_local_device.strip().lower()
+        if normalized_device not in SUPPORTED_LOCAL_DEVICES:
+            typer.echo(
+                f"STT device must be one of {sorted(SUPPORTED_LOCAL_DEVICES)}.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        config_data["stt_local_device"] = normalized_device
+        typer.echo(f"Global STT device set to: {normalized_device}")
+        updated = stt_perf_updated = True
+
+    if stt_compute_type is not None:
+        normalized_compute_type = stt_compute_type.strip().lower()
+        if normalized_compute_type not in SUPPORTED_COMPUTE_TYPES:
+            typer.echo(
+                f"STT compute type must be one of {sorted(SUPPORTED_COMPUTE_TYPES)}.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        config_data["stt_compute_type"] = normalized_compute_type
+        typer.echo(f"Global STT compute type set to: {normalized_compute_type}")
+        updated = stt_perf_updated = True
+
+    numeric_stt_options = (
+        ("stt_batch_size", stt_batch_size),
+        ("stt_beam_size", stt_beam_size),
+        ("stt_vad_min_silence_duration_ms", stt_vad_min_silence_ms),
+        ("stt_cpu_threads", stt_cpu_threads),
+        ("stt_num_workers", stt_num_workers),
+    )
+    for key, value in numeric_stt_options:
+        if value is not None:
+            config_data[key] = value
+            typer.echo(f"Global {key} set to: {value}")
+            updated = stt_perf_updated = True
+
+    if stt_temperature is not None:
+        config_data["stt_temperature"] = stt_temperature
+        typer.echo(f"Global stt_temperature set to: {stt_temperature}")
+        updated = stt_perf_updated = True
+
+    boolean_stt_options = (
+        ("stt_vad_filter", stt_vad_filter),
+        ("stt_condition_on_previous_text", stt_condition_on_previous_text),
+        ("stt_word_timestamps", stt_word_timestamps),
+    )
+    for key, value in boolean_stt_options:
+        if value is not None:
+            config_data[key] = value
+            typer.echo(f"Global {key} set to: {value}")
+            updated = stt_perf_updated = True
+
+    if stt_hotwords is not None:
+        config_data["stt_hotwords"] = stt_hotwords.strip() or None
+        typer.echo("Global STT hotwords updated.")
+        updated = stt_perf_updated = True
+
+    if stt_perf_updated:
+        candidate = STTConfig(
+            mode="local",
+            local_model_name=str(config_data.get("stt_local_model") or "base"),
+            local_device=str(config_data.get("stt_local_device") or "cpu"),  # type: ignore[arg-type]
+            compute_type=str(config_data.get("stt_compute_type") or "int8"),
+            batch_size=int(config_data.get("stt_batch_size") or 1),
+            beam_size=int(config_data.get("stt_beam_size") or 5),
+            temperature=(
+                float(config_data["stt_temperature"])
+                if config_data.get("stt_temperature") is not None
+                else None
+            ),
+            vad_filter=bool(config_data.get("stt_vad_filter", False)),
+            vad_min_silence_duration_ms=int(
+                config_data.get("stt_vad_min_silence_duration_ms", 2000)
+            ),
+            condition_on_previous_text=bool(
+                config_data.get("stt_condition_on_previous_text", True)
+            ),
+            word_timestamps=bool(config_data.get("stt_word_timestamps", False)),
+            hotwords=str(config_data.get("stt_hotwords") or "") or None,
+            cpu_threads=int(config_data.get("stt_cpu_threads") or 0),
+            num_workers=int(config_data.get("stt_num_workers") or 1),
+        )
+        try:
+            candidate.validate()
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
 
     if gemini_api_key is not None:
         from lecture_auto.application import ConfigRepository

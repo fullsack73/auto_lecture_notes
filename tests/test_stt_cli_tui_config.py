@@ -7,7 +7,12 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from lecture_auto.cli import _build_service, app
-from lecture_auto.tui import _menu_config, _select_llm_model, _select_llm_provider
+from lecture_auto.tui import (
+    _menu_config,
+    _select_llm_model,
+    _select_llm_provider,
+    _select_stt_local_model,
+)
 
 
 runner = CliRunner()
@@ -242,6 +247,67 @@ def test_cli_config_set_rejects_out_of_range_dynaudnorm_f(tmp_path: Path, monkey
     assert "dynaudnorm_f must be between 10 and 8000" in (result.output or "")
 
 
+def test_cli_config_set_persists_local_stt_performance_options(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _set_test_home(monkeypatch, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "config",
+            "set",
+            "--stt-device",
+            "auto",
+            "--stt-compute-type",
+            "auto",
+            "--stt-batch-size",
+            "4",
+            "--stt-beam-size",
+            "1",
+            "--stt-temperature",
+            "0",
+            "--stt-vad-filter",
+            "--stt-vad-min-silence-ms",
+            "1000",
+            "--no-stt-condition-on-previous-text",
+            "--stt-word-timestamps",
+            "--stt-hotwords",
+            "OpenGL rasterization",
+            "--stt-cpu-threads",
+            "8",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config_data = json.loads(_config_path(tmp_path).read_text(encoding="utf-8"))
+    assert config_data["stt_local_device"] == "auto"
+    assert config_data["stt_compute_type"] == "auto"
+    assert config_data["stt_batch_size"] == 4
+    assert config_data["stt_beam_size"] == 1
+    assert config_data["stt_temperature"] == 0.0
+    assert config_data["stt_vad_filter"] is True
+    assert config_data["stt_vad_min_silence_duration_ms"] == 1000
+    assert config_data["stt_condition_on_previous_text"] is False
+    assert config_data["stt_word_timestamps"] is True
+    assert config_data["stt_hotwords"] == "OpenGL rasterization"
+    assert config_data["stt_cpu_threads"] == 8
+
+
+def test_cli_config_set_rejects_batch_without_vad(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _set_test_home(monkeypatch, tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["config", "set", "--stt-batch-size", "4", "--no-stt-vad-filter"],
+    )
+
+    assert result.exit_code == 1
+    assert "requires vad_filter" in (result.output or "")
+
+
 def test_build_service_loads_dynaudnorm_from_config(tmp_path: Path, monkeypatch) -> None:
     _set_test_home(monkeypatch, tmp_path)
 
@@ -319,6 +385,29 @@ def test_tui_menu_config_saves_stt_local_model(monkeypatch) -> None:
 
     assert changed is True
     assert saved["stt_local_model"] == "distil-large-v3"
+
+
+def test_tui_local_model_selector_shows_hardware_recommendations() -> None:
+    captured: dict[str, object] = {}
+
+    def _capture_select(prompt: str, choices: list) -> str:
+        captured["prompt"] = prompt
+        captured["titles"] = [
+            choice.title
+            for choice in choices
+            if hasattr(choice, "title")
+        ]
+        return "small"
+
+    with patch("lecture_auto.tui._select", side_effect=_capture_select):
+        selected = _select_stt_local_model()
+
+    assert selected == "small"
+    assert "자동 적용 아님" in str(captured["prompt"])
+    assert any(
+        "Apple Silicon" in title
+        for title in captured["titles"]  # type: ignore[union-attr]
+    )
 
 
 def test_tui_menu_config_saves_llm_provider(monkeypatch) -> None:

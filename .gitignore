@@ -39,3 +39,4 @@ scripts/*
 !scripts/build_desktop_app.py
 !scripts/prepare_desktop_icon.py
 !scripts/prepare_ffmpeg_desktop.py
+!scripts/benchmark_local_stt.py

@@ -293,3 +293,8 @@ def test_refine_audio_uses_amplified_temp_path_and_transcription_uses_it(tmp_pat
     )
     assert result.payload["transcription_progress"]["audio_amplification_applied"] is True
     assert result.payload["transcription_progress"]["dynaudnorm_f"] == 100
+    operation = result.payload["transcription_progress"]["audio_refinement_operations"][0]
+    assert operation["operation"] == "dynaudnorm"
+    assert operation["parameters"]["f"] == 100
+    assert len(operation["source_sha256"]) == 64
+    assert len(operation["output_sha256"]) == 64

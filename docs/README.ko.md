@@ -243,6 +243,25 @@ STT:
 
 - `api`: Deepgram 또는 OpenAI-compatible provider
 - `local`: local Whisper/faster-whisper
+- local mode는 device/compute/batch/VAD/beam/hotwords를 CLI·TUI·GUI에서 설정
+- raw Markdown 옆 `*-raw.stt.json`에 timestamp/confidence/runtime을 보존
+
+### 로컬 STT 하드웨어별 추천
+
+아래 값은 **추천값이며 자동 적용되지 않는다**. 현재 자동 선택 범위는
+device/compute capability와 batch OOM 축소까지다. 모델은 사용자가 선택한다.
+
+| 하드웨어 | 모델 | device / compute | 용도 |
+| --- | --- | --- | --- |
+| 저사양 CPU, RAM 8GB 이하 | `base` | `cpu / int8` | 빠른 초안; 반복 검출 필수 |
+| 일반 CPU, Apple Silicon | `small` | `cpu / int8` | 현재 기본 권장 |
+| NVIDIA VRAM 4~6GB | `small` | `cuda / int8_float16` | GPU 저메모리 |
+| NVIDIA VRAM 8~12GB | `medium` | `cuda / float16` | 속도·정확도 균형 |
+| NVIDIA VRAM 16GB 이상 | `large-v3` | `cuda / float16` | 정확도 우선 |
+| AMD/Intel GPU | `small` | `cpu / int8` | 현재 GPU backend 미지원 |
+
+Apple Silicon의 Metal/MLX, AMD/Intel의 Vulkan/OpenVINO 자동 backend는 아직
+구현되지 않았다. CUDA도 호환 cuBLAS/cuDNN이 설치되어야 한다.
 
 LLM:
 
@@ -271,6 +290,18 @@ STT_MODE
 STT_API_PROVIDER
 STT_API_KEY
 STT_LOCAL_MODEL
+STT_LOCAL_DEVICE
+STT_COMPUTE_TYPE
+STT_BATCH_SIZE
+STT_BEAM_SIZE
+STT_TEMPERATURE
+STT_VAD_FILTER
+STT_VAD_MIN_SILENCE_MS
+STT_CONDITION_ON_PREVIOUS_TEXT
+STT_WORD_TIMESTAMPS
+STT_HOTWORDS
+STT_CPU_THREADS
+STT_NUM_WORKERS
 USE_DYNAUDNORM
 LLM_PROVIDER
 LLM_MODEL

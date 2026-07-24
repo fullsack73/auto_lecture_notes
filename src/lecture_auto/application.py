@@ -108,6 +108,61 @@ class ConfigRepository:
             api_key=stt_api_key,
             local_model_name=os.environ.get("STT_LOCAL_MODEL") or data.get("stt_local_model") or "base",
             language=data.get("stt_language"),
+            local_device=str(
+                os.environ.get("STT_LOCAL_DEVICE")
+                or data.get("stt_local_device")
+                or "cpu"
+            ),  # type: ignore[arg-type]
+            compute_type=str(
+                os.environ.get("STT_COMPUTE_TYPE")
+                or data.get("stt_compute_type")
+                or "int8"
+            ),
+            batch_size=self._optional_int(
+                os.environ["STT_BATCH_SIZE"]
+                if "STT_BATCH_SIZE" in os.environ
+                else data.get("stt_batch_size")
+            ) or 1,
+            beam_size=self._optional_int(
+                os.environ["STT_BEAM_SIZE"]
+                if "STT_BEAM_SIZE" in os.environ
+                else data.get("stt_beam_size")
+            ) or 5,
+            temperature=self._optional_float(
+                os.environ["STT_TEMPERATURE"]
+                if "STT_TEMPERATURE" in os.environ
+                else data.get("stt_temperature")
+            ),
+            vad_filter=self._env_bool(
+                "STT_VAD_FILTER", data.get("stt_vad_filter", False)
+            ),
+            vad_min_silence_duration_ms=self._optional_int(
+                os.environ["STT_VAD_MIN_SILENCE_MS"]
+                if "STT_VAD_MIN_SILENCE_MS" in os.environ
+                else data.get("stt_vad_min_silence_duration_ms", 2000)
+            ) or 0,
+            condition_on_previous_text=self._env_bool(
+                "STT_CONDITION_ON_PREVIOUS_TEXT",
+                data.get("stt_condition_on_previous_text", True),
+            ),
+            word_timestamps=self._env_bool(
+                "STT_WORD_TIMESTAMPS", data.get("stt_word_timestamps", False)
+            ),
+            hotwords=(
+                os.environ.get("STT_HOTWORDS")
+                or data.get("stt_hotwords")
+                or None
+            ),
+            cpu_threads=self._optional_int(
+                os.environ["STT_CPU_THREADS"]
+                if "STT_CPU_THREADS" in os.environ
+                else data.get("stt_cpu_threads")
+            ) or 0,
+            num_workers=self._optional_int(
+                os.environ["STT_NUM_WORKERS"]
+                if "STT_NUM_WORKERS" in os.environ
+                else data.get("stt_num_workers")
+            ) or 1,
             use_dynaudnorm=self._env_bool("USE_DYNAUDNORM", data.get("use_dynaudnorm", False)),
             dynaudnorm_f=self._optional_int(data.get("dynaudnorm_f")),
             dynaudnorm_g=self._optional_int(data.get("dynaudnorm_g")),
@@ -160,6 +215,18 @@ class ConfigRepository:
             "stt_api_provider": config.stt.api_provider,
             "stt_local_model": config.stt.local_model_name,
             "stt_language": config.stt.language,
+            "stt_local_device": config.stt.local_device,
+            "stt_compute_type": config.stt.compute_type,
+            "stt_batch_size": config.stt.batch_size,
+            "stt_beam_size": config.stt.beam_size,
+            "stt_temperature": config.stt.temperature,
+            "stt_vad_filter": config.stt.vad_filter,
+            "stt_vad_min_silence_duration_ms": config.stt.vad_min_silence_duration_ms,
+            "stt_condition_on_previous_text": config.stt.condition_on_previous_text,
+            "stt_word_timestamps": config.stt.word_timestamps,
+            "stt_hotwords": config.stt.hotwords,
+            "stt_cpu_threads": config.stt.cpu_threads,
+            "stt_num_workers": config.stt.num_workers,
             "use_dynaudnorm": config.stt.use_dynaudnorm,
             "dynaudnorm_f": config.stt.dynaudnorm_f,
             "dynaudnorm_g": config.stt.dynaudnorm_g,

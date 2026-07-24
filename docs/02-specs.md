@@ -30,6 +30,12 @@
 ### Runtime and adapters
 
 - STT는 API(`Deepgram`, OpenAI-compatible)와 local(`faster-whisper`)을 adapter로 분리한다.
+- local faster-whisper의 device/compute/batch/VAD/beam/thread 설정은 `STTConfig`와
+  worker request를 거친다. 앱 프로세스는 CTranslate2/faster-whisper를 직접 import하지 않는다.
+- `device=auto`, `compute_type=auto`는 worker가 실제 CTranslate2 capability를 조회해
+  선택한다. CUDA 초기화 실패는 CPU로 숨겨서 fallback하지 않고 해결 방법과 함께 실패시킨다.
+- batch inference는 VAD가 켜진 경우만 허용한다. 메모리 부족이면 batch를 절반씩 줄여
+  재시도하고 실제 batch와 재시도 횟수를 결과 metadata에 기록한다.
 - LLM은 `gemini`와 `ollama` provider를 공통 `LLMProviderAdapter` 경계로 제공한다.
 - 녹음은 FFmpeg/AVFoundation 등 플랫폼 실행 세부사항을 `capture_runtime.py` 안에 둔다. 런타임은 앱에 포함된 `bin/ffmpeg`와 `bin/ffprobe`를 시스템 `PATH`보다 우선한다.
 - 외부 SDK import는 adapter/runtime 내부에서 지연 import할 수 있으며, 가벼운 명령과 테스트 import를 불필요하게 막지 않는다.
@@ -52,9 +58,25 @@ recording
   → (선택) volume/noise refinement
   → STT adapter
   → raw transcript
+  → raw STT metadata sidecar
   → (선택) LLM refinement
   → edited transcript
 ```
+
+local STT는 raw transcript와 별도로 `*-raw.stt.json` sidecar를 쓴다. schema version,
+provider/language/runtime, segment 시작·종료, `avg_logprob`, `compression_ratio`,
+`no_speech_prob`, temperature와 선택적 word probability/timestamp를 포함한다.
+raw Markdown과 기존 CLI JSON의 기본 구조는 유지한다. `stt_quality.py`는 초기 기준
+`avg_logprob < -1.0`, `compression_ratio > 2.4`, `no_speech_prob > 0.6` 및
+비정상 문자율/반복을 의심 구간으로 표시한다. 이 기준은 corpus benchmark로 보정한다.
+
+local 성능 설정은 config JSON과 `STT_*` 환경변수, CLI/TUI/GUI에서 동일하게 다룬다.
+기존 config에 필드가 없으면 CPU/int8/batch 1/beam 5/VAD off라는 종전 동작을 유지한다.
+
+오디오 preflight는 FFprobe와 FFmpeg `volumedetect`/`silencedetect`로 duration,
+sample rate, channel, mean/peak volume, clipping 위험과 silence 비율을 측정한다.
+결과는 VAD, loudness normalization, capture level 점검의 benchmark 후보만 제안하며
+원본을 덮어쓰거나 denoise/normalization을 자동 강제하지 않는다.
 
 노트 생성은 edited transcript를 우선하고 없으면 raw transcript를 사용한다. 결과 포맷은 항상 `structured-notes`다.
 

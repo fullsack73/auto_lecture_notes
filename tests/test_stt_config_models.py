@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from lecture_auto.stt_config import STTConfig, SUPPORTED_API_PROVIDERS
+from lecture_auto.stt_config import (
+    LOCAL_MODEL_RECOMMENDATIONS,
+    LOCAL_STT_HARDWARE_GUIDE,
+    STTConfig,
+    SUPPORTED_API_PROVIDERS,
+)
 from lecture_auto.stt_runtime import DiarizedSegment, STTResult
 
 
@@ -35,6 +40,62 @@ def test_stt_config_dynaudnorm_defaults_to_false() -> None:
 def test_stt_config_dynaudnorm_accepts_valid_params() -> None:
     config = STTConfig(mode="local", local_model_name="base", use_dynaudnorm=True, dynaudnorm_f=100, dynaudnorm_g=31)
     config.validate()
+
+
+def test_stt_config_accepts_optimized_local_options() -> None:
+    config = STTConfig(
+        mode="local",
+        local_model_name="base",
+        local_device="auto",
+        compute_type="auto",
+        batch_size=4,
+        beam_size=1,
+        temperature=0.0,
+        vad_filter=True,
+        vad_min_silence_duration_ms=1000,
+        condition_on_previous_text=False,
+        word_timestamps=True,
+        hotwords="OpenGL rasterization",
+        cpu_threads=8,
+        num_workers=2,
+    )
+
+    config.validate()
+
+
+def test_stt_config_rejects_batch_without_vad() -> None:
+    config = STTConfig(
+        mode="local",
+        local_model_name="base",
+        batch_size=4,
+        vad_filter=False,
+    )
+
+    with pytest.raises(ValueError, match="requires vad_filter"):
+        config.validate()
+
+
+def test_stt_config_rejects_unknown_device() -> None:
+    config = STTConfig(
+        mode="local",
+        local_model_name="base",
+        local_device="metal",  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="Unsupported local STT device"):
+        config.validate()
+
+
+def test_hardware_recommendations_cover_supported_model_presets() -> None:
+    assert [name for name, _description in LOCAL_MODEL_RECOMMENDATIONS] == [
+        "base",
+        "small",
+        "medium",
+        "large-v3",
+    ]
+    assert "자동 적용 아님" in LOCAL_STT_HARDWARE_GUIDE
+    assert "Apple Silicon" in LOCAL_STT_HARDWARE_GUIDE
+    assert "NVIDIA 16GB+" in LOCAL_STT_HARDWARE_GUIDE
 
 
 def test_stt_config_dynaudnorm_rejects_invalid_f() -> None:

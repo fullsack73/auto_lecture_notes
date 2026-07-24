@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 from contextlib import nullcontext
@@ -372,7 +373,11 @@ class SessionService:
 
                 # Collect file paths that need renaming
                 rename_pairs: list[tuple[Path, Path]] = []
-                for field in ("audio_file_path", "transcript_file_path"):
+                for field in (
+                    "audio_file_path",
+                    "transcript_file_path",
+                    "transcript_metadata_file_path",
+                ):
                     old_rel = session.get(field)
                     if old_rel and session_id in old_rel:
                         new_rel = old_rel.replace(session_id, new_id, 1)
@@ -434,6 +439,10 @@ class SessionService:
             files_to_delete.append(metadata_root / session["audio_file_path"])
         if session.get("transcript_file_path"):
             files_to_delete.append(metadata_root / session["transcript_file_path"])
+        if session.get("transcript_metadata_file_path"):
+            files_to_delete.append(
+                metadata_root / session["transcript_metadata_file_path"]
+            )
         
         edited_transcript = metadata_root / self.store.build_edited_transcript_path(
             session_id,
@@ -489,6 +498,7 @@ class SessionService:
 
         source_rel_path = session.get("refined_audio_file_path") or session["audio_file_path"]
         source_path = self._resolve_audio_input_path(source_rel_path)
+        source_checksum = self._optional_sha256(Path(source_path))
         # Volume filter ALWAYS outputs a true WAV via pcm_s16le
         source_extension = "wav"
 
@@ -510,6 +520,19 @@ class SessionService:
                 shutil.copy2(output_tmp_path, refined_abs)
 
                 session["refined_audio_file_path"] = refined_relative
+                self._append_audio_refinement_operation(
+                    session,
+                    operation="dynaudnorm",
+                    source_path=str(source_rel_path),
+                    output_path=refined_relative,
+                    source_checksum=source_checksum,
+                    output_checksum=self._optional_sha256(refined_abs),
+                    parameters={
+                        "f": f,
+                        "g": g,
+                        "gain_db": self.stt_config.gain_db,
+                    },
+                )
                 saved = self._persist_or_raise(session)
 
                 return CommandResult(
@@ -545,6 +568,7 @@ class SessionService:
 
         source_rel_path = session.get("refined_audio_file_path") or session["audio_file_path"]
         source_path = self._resolve_audio_input_path(source_rel_path)
+        source_checksum = self._optional_sha256(Path(source_path))
 
         if self.local_runtime_manager is not None:
             refined_relative = self.store.build_refined_audio_path(
@@ -582,6 +606,15 @@ class SessionService:
                     exit_code=2,
                 ) from exc
             session["refined_audio_file_path"] = refined_relative
+            self._append_audio_refinement_operation(
+                session,
+                operation="deepfilter",
+                source_path=str(source_rel_path),
+                output_path=refined_relative,
+                source_checksum=source_checksum,
+                output_checksum=self._optional_sha256(refined_abs),
+                parameters={"runtime": "managed"},
+            )
             saved = self._persist_or_raise(session)
             return CommandResult(
                 command="audio refine-noise",
@@ -601,6 +634,15 @@ class SessionService:
                 shutil.copy2(output_tmp_path, refined_abs)
 
                 session["refined_audio_file_path"] = refined_relative
+                self._append_audio_refinement_operation(
+                    session,
+                    operation="deepfilter",
+                    source_path=str(source_rel_path),
+                    output_path=refined_relative,
+                    source_checksum=source_checksum,
+                    output_checksum=self._optional_sha256(refined_abs),
+                    parameters={"runtime": "legacy"},
+                )
                 saved = self._persist_or_raise(session)
 
                 return CommandResult(
@@ -1024,6 +1066,24 @@ class SessionService:
                 transcript_relative_path=transcript_relative_path,
                 transcript_text=output_text,
             )
+            transcript_metadata_relative_path = str(
+                Path(transcript_relative_path).with_suffix(".stt.json")
+            ).replace("\\", "/")
+            self._write_transcript_metadata_file(
+                metadata_relative_path=transcript_metadata_relative_path,
+                metadata=(
+                    transcript_result.to_metadata_dict()
+                    if transcript_result is not None
+                    else {
+                        "schema_version": 1,
+                        "provider": None,
+                        "mode": mode,
+                        "language": None,
+                        "metadata": {},
+                        "segments": [],
+                    }
+                ),
+            )
         except OSError as exc:
             self._mark_transcription_failure(session, "configuration")
             raise SessionCommandError(
@@ -1034,6 +1094,7 @@ class SessionService:
             ) from exc
 
         session["transcript_file_path"] = transcript_relative_path
+        session["transcript_metadata_file_path"] = transcript_metadata_relative_path
         session["transcription_status"] = "succeeded"
         session["transcription_error_category"] = None
         session["transcription_retry_count"] = max(0, attempt - 1)
@@ -1051,8 +1112,22 @@ class SessionService:
             "use_dynaudnorm": self.stt_config.use_dynaudnorm,
             "dynaudnorm_f": self.stt_config.dynaudnorm_f,
             "dynaudnorm_g": self.stt_config.dynaudnorm_g,
-            "audio_amplification_applied": self.stt_config.use_dynaudnorm,
+            "refined_audio_used": bool(session.get("refined_audio_file_path")),
+            "audio_amplification_applied": any(
+                operation.get("operation") == "dynaudnorm"
+                for operation in session.get("audio_refinement_operations", [])
+                if isinstance(operation, dict)
+            ),
+            "audio_refinement_operations": session.get(
+                "audio_refinement_operations", []
+            ),
+            "local_runtime": (
+                transcript_result.metadata
+                if transcript_result and transcript_result.mode == "local"
+                else None
+            ),
             "transcript_file_path": transcript_relative_path,
+            "transcript_metadata_file_path": transcript_metadata_relative_path,
         }
 
         report_progress(progress_callback, job_id=job_id, session_id=session_id, stage=stages[3], completed=4, total=4, message="Transcript saved.")
@@ -1666,6 +1741,56 @@ class SessionService:
         target = metadata_root / transcript_relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(transcript_text, encoding="utf-8")
+
+    def _write_transcript_metadata_file(
+        self,
+        *,
+        metadata_relative_path: str,
+        metadata: dict[str, object],
+    ) -> None:
+        metadata_root = self.store.metadata_file.parent.parent
+        target = metadata_root / metadata_relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _append_audio_refinement_operation(
+        self,
+        session: dict[str, Any],
+        *,
+        operation: str,
+        source_path: str,
+        output_path: str,
+        source_checksum: str | None,
+        output_checksum: str | None,
+        parameters: dict[str, object],
+    ) -> None:
+        operations = list(session.get("audio_refinement_operations") or [])
+        operations.append(
+            {
+                "operation": operation,
+                "source_path": source_path,
+                "output_path": output_path,
+                "source_sha256": source_checksum,
+                "output_sha256": output_checksum,
+                "parameters": parameters,
+                "completed_at": self._utc_now(),
+            }
+        )
+        session["audio_refinement_operations"] = operations
+
+    @staticmethod
+    def _optional_sha256(path: Path) -> str | None:
+        try:
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for block in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(block)
+            return digest.hexdigest()
+        except OSError:
+            return None
 
     def _write_note_file(self, *, note_relative_path: str, note_text: str) -> None:
         metadata_root = self.store.metadata_file.parent.parent

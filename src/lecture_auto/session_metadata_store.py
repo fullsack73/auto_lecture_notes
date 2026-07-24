@@ -21,7 +21,9 @@ METADATA_FIELDS = (
     "import_source_audio_path",
     "audio_file_path",
     "refined_audio_file_path",
+    "audio_refinement_operations",
     "transcript_file_path",
+    "transcript_metadata_file_path",
     "material_file_path",
     "transcription_status",
     "transcription_error_category",
@@ -120,6 +122,7 @@ class SessionMetadataStore:
                 "job_error_code",
                 "import_source_audio_path",
                 "transcript_file_path",
+                "transcript_metadata_file_path",
                 "material_file_path",
                 "transcription_status",
                 "transcription_error_category",
@@ -131,6 +134,8 @@ class SessionMetadataStore:
                 normalized[key] = 0
             elif key == "job_timestamps":
                 normalized[key] = {}
+            elif key == "audio_refinement_operations":
+                normalized[key] = []
 
         self._validate_types(normalized)
         return normalized
@@ -147,6 +152,7 @@ class SessionMetadataStore:
             "audio_file_path",
             "refined_audio_file_path",
             "transcript_file_path",
+            "transcript_metadata_file_path",
             "material_file_path",
             "transcription_status",
             "transcription_error_category",
@@ -186,11 +192,30 @@ class SessionMetadataStore:
                 audio_file_path=session["refined_audio_file_path"],
             )
 
+        if not isinstance(session["audio_refinement_operations"], list):
+            raise SessionMetadataValidationError(
+                "Field 'audio_refinement_operations' must be an array"
+            )
+        if not all(
+            isinstance(operation, dict)
+            for operation in session["audio_refinement_operations"]
+        ):
+            raise SessionMetadataValidationError(
+                "Every audio refinement operation must be an object"
+            )
+
         transcript_file_path = session["transcript_file_path"]
         if transcript_file_path is not None:
             self._validate_transcript_path_for_session(
                 session_id=session["session_id"],
                 transcript_file_path=transcript_file_path,
+            )
+
+        transcript_metadata_file_path = session["transcript_metadata_file_path"]
+        if transcript_metadata_file_path is not None:
+            self._validate_transcript_path_for_session(
+                session_id=session["session_id"],
+                transcript_file_path=transcript_metadata_file_path,
             )
 
         material_file_path = session.get("material_file_path")

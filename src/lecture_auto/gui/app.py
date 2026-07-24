@@ -58,7 +58,11 @@ from lecture_auto.gui.jobs import JobController
 from lecture_auto.llm_config import LLMConfig
 from lecture_auto.local_runtime import RuntimeStatus
 from lecture_auto.session_service import CommandResult, SessionCommandError
-from lecture_auto.stt_config import STTConfig
+from lecture_auto.stt_config import (
+    LOCAL_MODEL_RECOMMENDATIONS,
+    LOCAL_STT_HARDWARE_GUIDE,
+    STTConfig,
+)
 from lecture_auto.tasking import TaskCancelledError, TaskEvent
 
 
@@ -1050,8 +1054,31 @@ class SettingsPage(QWidget):
         self.stt_provider = combo((("OpenAI-compatible", "openai-compatible"), ("Deepgram", "deepgram")))
         self.stt_key = QLineEdit()
         self.stt_key.setEchoMode(QLineEdit.Password)
-        self.stt_model = combo(tuple((name, name) for name in ("base", "small", "medium", "large-v3")))
+        self.stt_model = combo(
+            tuple(
+                (f"{name} — {recommendation}", name)
+                for name, recommendation in LOCAL_MODEL_RECOMMENDATIONS
+            )
+        )
         self.stt_language = QLineEdit()
+        self.stt_device = combo(tuple((name, name) for name in ("auto", "cpu", "cuda")))
+        self.stt_compute_type = combo(
+            tuple(
+                (name, name)
+                for name in ("auto", "int8", "int8_float16", "float16", "float32")
+            )
+        )
+        self.stt_batch_size = NoWheelSpinBox(); self.stt_batch_size.setRange(1, 64)
+        self.stt_beam_size = NoWheelSpinBox(); self.stt_beam_size.setRange(1, 20)
+        self.stt_temperature = QLineEdit()
+        self.stt_temperature.setPlaceholderText("비움 = runtime 기본값")
+        self.stt_vad_filter = QCheckBox()
+        self.stt_vad_min_silence = NoWheelSpinBox(); self.stt_vad_min_silence.setRange(1, 10000)
+        self.stt_condition_previous = QCheckBox()
+        self.stt_word_timestamps = QCheckBox()
+        self.stt_hotwords = QLineEdit()
+        self.stt_cpu_threads = NoWheelSpinBox(); self.stt_cpu_threads.setRange(0, 256)
+        self.stt_num_workers = NoWheelSpinBox(); self.stt_num_workers.setRange(1, 32)
         self.dynaudnorm = QCheckBox()
         self.dynaudnorm_f = NoWheelSpinBox(); self.dynaudnorm_f.setRange(10, 8000)
         self.dynaudnorm_g = NoWheelSpinBox(); self.dynaudnorm_g.setRange(3, 301); self.dynaudnorm_g.setSingleStep(2)
@@ -1061,6 +1088,22 @@ class SettingsPage(QWidget):
         form.addRow("STT API key", self.stt_key)
         form.addRow("Whisper 모델", self.stt_model)
         form.addRow("STT 언어", self.stt_language)
+        form.addRow("로컬 device", self.stt_device)
+        form.addRow("Compute type", self.stt_compute_type)
+        form.addRow("Batch size", self.stt_batch_size)
+        form.addRow("Beam size", self.stt_beam_size)
+        form.addRow("Temperature", self.stt_temperature)
+        form.addRow("VAD", self.stt_vad_filter)
+        form.addRow("VAD 최소 무음 (ms)", self.stt_vad_min_silence)
+        form.addRow("이전 문맥 사용", self.stt_condition_previous)
+        form.addRow("단어 timestamp", self.stt_word_timestamps)
+        form.addRow("Hotwords", self.stt_hotwords)
+        form.addRow("CPU threads (0=자동)", self.stt_cpu_threads)
+        form.addRow("Workers", self.stt_num_workers)
+        self.stt_hardware_guide = QLabel(LOCAL_STT_HARDWARE_GUIDE)
+        self.stt_hardware_guide.setObjectName("SettingsActionBody")
+        self.stt_hardware_guide.setWordWrap(True)
+        form.addRow("하드웨어별 추천", self.stt_hardware_guide)
         form.addRow("dynaudnorm", self.dynaudnorm)
         form.addRow("dynaudnorm f", self.dynaudnorm_f)
         form.addRow("dynaudnorm g", self.dynaudnorm_g)
@@ -1089,7 +1132,22 @@ class SettingsPage(QWidget):
             return tuple(controls)
 
         self._stt_api_controls = controls_with_labels(self.stt_provider, self.stt_key)
-        self._stt_local_controls = controls_with_labels(self.stt_model)
+        self._stt_local_controls = controls_with_labels(
+            self.stt_model,
+            self.stt_device,
+            self.stt_compute_type,
+            self.stt_batch_size,
+            self.stt_beam_size,
+            self.stt_temperature,
+            self.stt_vad_filter,
+            self.stt_vad_min_silence,
+            self.stt_condition_previous,
+            self.stt_word_timestamps,
+            self.stt_hotwords,
+            self.stt_cpu_threads,
+            self.stt_num_workers,
+            self.stt_hardware_guide,
+        )
         self._gemini_controls = controls_with_labels(self.llm_key)
         self._ollama_controls = controls_with_labels(self.ollama_url)
         self.stt_mode.currentIndexChanged.connect(self._sync_provider_fields)
@@ -1260,6 +1318,20 @@ class SettingsPage(QWidget):
         set_combo(self.stt_provider, cfg.stt.api_provider)
         set_combo(self.stt_model, cfg.stt.local_model_name)
         self.stt_language.setText(cfg.stt.language or "")
+        set_combo(self.stt_device, cfg.stt.local_device)
+        set_combo(self.stt_compute_type, cfg.stt.compute_type)
+        self.stt_batch_size.setValue(cfg.stt.batch_size)
+        self.stt_beam_size.setValue(cfg.stt.beam_size)
+        self.stt_temperature.setText(
+            "" if cfg.stt.temperature is None else str(cfg.stt.temperature)
+        )
+        self.stt_vad_filter.setChecked(cfg.stt.vad_filter)
+        self.stt_vad_min_silence.setValue(cfg.stt.vad_min_silence_duration_ms)
+        self.stt_condition_previous.setChecked(cfg.stt.condition_on_previous_text)
+        self.stt_word_timestamps.setChecked(cfg.stt.word_timestamps)
+        self.stt_hotwords.setText(cfg.stt.hotwords or "")
+        self.stt_cpu_threads.setValue(cfg.stt.cpu_threads)
+        self.stt_num_workers.setValue(cfg.stt.num_workers)
         self.dynaudnorm.setChecked(cfg.stt.use_dynaudnorm)
         self.dynaudnorm_f.setValue(cfg.stt.dynaudnorm_f or 150)
         self.dynaudnorm_g.setValue(cfg.stt.dynaudnorm_g or 15)
@@ -1438,6 +1510,22 @@ class SettingsPage(QWidget):
                 api_key=stt_api_key,
                 local_model_name=str(self.stt_model.currentData()),
                 language=self.stt_language.text().strip() or None,
+                local_device=str(self.stt_device.currentData()),
+                compute_type=str(self.stt_compute_type.currentData()),
+                batch_size=self.stt_batch_size.value(),
+                beam_size=self.stt_beam_size.value(),
+                temperature=(
+                    float(self.stt_temperature.text())
+                    if self.stt_temperature.text().strip()
+                    else None
+                ),
+                vad_filter=self.stt_vad_filter.isChecked(),
+                vad_min_silence_duration_ms=self.stt_vad_min_silence.value(),
+                condition_on_previous_text=self.stt_condition_previous.isChecked(),
+                word_timestamps=self.stt_word_timestamps.isChecked(),
+                hotwords=self.stt_hotwords.text().strip() or None,
+                cpu_threads=self.stt_cpu_threads.value(),
+                num_workers=self.stt_num_workers.value(),
                 use_dynaudnorm=self.dynaudnorm.isChecked(),
                 dynaudnorm_f=self.dynaudnorm_f.value(),
                 dynaudnorm_g=self.dynaudnorm_g.value() | 1,

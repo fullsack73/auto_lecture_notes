@@ -244,6 +244,23 @@ STT:
 - `api`: Deepgram or an OpenAI-compatible provider
 - `local`: local Whisper/faster-whisper
 
+### Local STT hardware recommendations
+
+These are **recommendations, not automatic model selection**. Automatic behavior
+currently covers device/compute capability and smaller-batch retry on OOM.
+
+| Hardware | Model | device / compute | Use |
+| --- | --- | --- | --- |
+| Low-end CPU, up to 8 GB RAM | `base` | `cpu / int8` | Fast draft; repetition checks required |
+| General CPU, Apple Silicon | `small` | `cpu / int8` | Current default recommendation |
+| NVIDIA 4–6 GB VRAM | `small` | `cuda / int8_float16` | Low-memory GPU |
+| NVIDIA 8–12 GB VRAM | `medium` | `cuda / float16` | Balanced speed and accuracy |
+| NVIDIA 16 GB+ VRAM | `large-v3` | `cuda / float16` | Accuracy first |
+| AMD/Intel GPU | `small` | `cpu / int8` | GPU backend not currently supported |
+
+Metal/MLX on Apple Silicon and Vulkan/OpenVINO on AMD/Intel are not implemented
+yet. CUDA requires compatible cuBLAS/cuDNN libraries.
+
 LLM:
 
 - `gemini`: Google API; supports hosted Gemini and Gemma 4 models

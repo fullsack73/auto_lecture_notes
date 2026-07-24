@@ -32,6 +32,16 @@ class STTAudioDecodeError(STTRuntimeError):
 
 
 @dataclass
+class WordTimestamp:
+    """A word-level timing and confidence emitted by an STT provider."""
+
+    word: str
+    start_time: float
+    end_time: float
+    probability: float | None = None
+
+
+@dataclass
 class DiarizedSegment:
     """A single speaker-attributed segment of transcription."""
 
@@ -39,6 +49,11 @@ class DiarizedSegment:
     start_time: float
     end_time: float
     text: str
+    avg_logprob: float | None = None
+    compression_ratio: float | None = None
+    no_speech_prob: float | None = None
+    temperature: float | None = None
+    words: list[WordTimestamp] = field(default_factory=list)
 
 
 @dataclass
@@ -48,6 +63,7 @@ class STTResult:
     mode: str
     language: str | None = None
     segments: list[DiarizedSegment] = field(default_factory=list)
+    metadata: dict[str, object] = field(default_factory=dict)
 
     def to_plain_text(self) -> str:
         """Return a horizontal plain-text transcript."""
@@ -72,6 +88,38 @@ class STTResult:
             lines.append(f"{timestamp} {seg.text}")
 
         return "\n".join(lines).strip()
+
+    def to_metadata_dict(self) -> dict[str, object]:
+        """Return a JSON-safe sidecar without changing transcript text formats."""
+        return {
+            "schema_version": 1,
+            "provider": self.provider,
+            "mode": self.mode,
+            "language": self.language,
+            "metadata": self.metadata,
+            "segments": [
+                {
+                    "speaker": segment.speaker,
+                    "start_time": segment.start_time,
+                    "end_time": segment.end_time,
+                    "text": segment.text,
+                    "avg_logprob": segment.avg_logprob,
+                    "compression_ratio": segment.compression_ratio,
+                    "no_speech_prob": segment.no_speech_prob,
+                    "temperature": segment.temperature,
+                    "words": [
+                        {
+                            "word": word.word,
+                            "start_time": word.start_time,
+                            "end_time": word.end_time,
+                            "probability": word.probability,
+                        }
+                        for word in segment.words
+                    ],
+                }
+                for segment in self.segments
+            ],
+        }
 
 
 def _format_ts(seconds: float) -> str:

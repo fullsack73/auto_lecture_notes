@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from lecture_auto.application import AppConfig, ConfigRepository, KeyringSecretStore
+from lecture_auto.stt_config import STTConfig
 
 
 class MemorySecretStore:
@@ -66,6 +67,33 @@ def test_environment_overrides_saved_provider_config(tmp_path: Path, monkeypatch
 
     assert config.stt.mode == "local"
     assert config.stt.local_model_name == "small"
+
+
+def test_local_stt_performance_options_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    repository = ConfigRepository(path, MemorySecretStore())
+    expected = STTConfig(
+        mode="local",
+        local_model_name="base",
+        language="ko",
+        local_device="auto",
+        compute_type="auto",
+        batch_size=4,
+        beam_size=1,
+        temperature=0.0,
+        vad_filter=True,
+        vad_min_silence_duration_ms=1000,
+        condition_on_previous_text=False,
+        word_timestamps=True,
+        hotwords="OpenGL rasterization",
+        cpu_threads=8,
+        num_workers=2,
+    )
+
+    repository.save(AppConfig(workspace=tmp_path / "workspace", stt=expected))
+    loaded = repository.load(load_secrets=False)
+
+    assert loaded.stt == expected
 
 
 def test_app_load_does_not_access_keychain(tmp_path: Path) -> None:

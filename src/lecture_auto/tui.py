@@ -19,6 +19,12 @@ from lecture_auto.cli_output import format_command_error, format_command_output
 from lecture_auto.library_service import LibraryService
 from lecture_auto.llm_config import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from lecture_auto.session_service import SessionCommandError
+from lecture_auto.stt_config import (
+    LOCAL_MODEL_RECOMMENDATIONS,
+    LOCAL_STT_HARDWARE_GUIDE,
+    SUPPORTED_COMPUTE_TYPES,
+    SUPPORTED_LOCAL_DEVICES,
+)
 
 # ── Styling ────────────────────────────────────────────────────────────────────
 STYLE = questionary.Style(
@@ -122,16 +128,25 @@ def _select_capture_source(current: str = "") -> str | None:
 def _select_stt_local_model(current: str = "") -> str | None:
     """Select a recommended local Whisper model or enter one manually."""
     choices = [
-        questionary.Choice(title="base", value="base", checked=current == "base"),
-        questionary.Choice(title="small", value="small", checked=current == "small"),
-        questionary.Choice(title="medium", value="medium", checked=current == "medium"),
-        questionary.Choice(title="large-v3", value="large-v3", checked=current == "large-v3"),
-        questionary.Separator(),
-        questionary.Choice(title="Enter custom model name...", value="__manual__"),
-        questionary.Choice(title="Clear value", value="__clear__"),
-        questionary.Choice(title="Cancel", value="__cancel__"),
+        questionary.Choice(
+            title=f"{name} — {recommendation}",
+            value=name,
+            checked=current == name,
+        )
+        for name, recommendation in LOCAL_MODEL_RECOMMENDATIONS
     ]
-    selection = _select("Select local Whisper model", choices)
+    choices.extend(
+        [
+            questionary.Separator(),
+            questionary.Choice(title="Enter custom model name...", value="__manual__"),
+            questionary.Choice(title="Clear value", value="__clear__"),
+            questionary.Choice(title="Cancel", value="__cancel__"),
+        ]
+    )
+    selection = _select(
+        f"Select local Whisper model\n{LOCAL_STT_HARDWARE_GUIDE}",
+        choices,
+    )
     if selection != "__manual__":
         return selection
     manual = _ask("Custom local model name", default=current)
@@ -829,6 +844,19 @@ def _menu_config() -> bool:
                 ("stt_language", "STT language (e.g. ko)"),
                 ("stt_api_provider", "STT API provider"),
                 ("stt_local_model", "Local Whisper model (e.g. base, large-v3)"),
+                LOCAL_STT_HARDWARE_GUIDE,
+                ("stt_local_device", "Local device (auto, cpu, cuda)"),
+                ("stt_compute_type", "Compute type (auto, int8, int8_float16, float16, float32)"),
+                ("stt_batch_size", "Batch size (batch > 1 requires VAD)"),
+                ("stt_beam_size", "Beam size"),
+                ("stt_temperature", "Temperature"),
+                ("stt_vad_filter", "Use VAD (True or False)"),
+                ("stt_vad_min_silence_duration_ms", "VAD minimum silence (milliseconds)"),
+                ("stt_condition_on_previous_text", "Condition on previous text (True or False)"),
+                ("stt_word_timestamps", "Collect word timestamps (True or False)"),
+                ("stt_hotwords", "Hotwords/glossary terms"),
+                ("stt_cpu_threads", "CPU threads (0 = runtime default)"),
+                ("stt_num_workers", "Whisper workers"),
                 "── LLM (Large Language Model) ──",
                 ("llm_language", "LLM language (e.g. korean)"),
                 ("llm_provider", "LLM provider (Google API or local)"),
@@ -931,6 +959,18 @@ def _menu_config() -> bool:
                     if selected_key == "stt_mode" and value not in ("api", "local"):
                         typer.echo("Invalid STT mode. Must be 'api' or 'local'. Skipping.")
                         continue
+                    if (
+                        selected_key == "stt_local_device"
+                        and value not in SUPPORTED_LOCAL_DEVICES
+                    ):
+                        typer.echo("Invalid STT device. Use auto, cpu, or cuda. Skipping.")
+                        continue
+                    if (
+                        selected_key == "stt_compute_type"
+                        and value not in SUPPORTED_COMPUTE_TYPES
+                    ):
+                        typer.echo("Invalid STT compute type. Skipping.")
+                        continue
                     if selected_key == "llm_provider":
                         normalized_provider = value.lower()
                         google_aliases = {"gemini", "google", "google_api", "google-api", "google api"}
@@ -942,11 +982,42 @@ def _menu_config() -> bool:
                             value = "gemini"
                         elif normalized_provider == "ollama":
                             value = "local"
-                    if selected_key == "use_dynaudnorm":
+                    if selected_key in {
+                        "use_dynaudnorm",
+                        "stt_vad_filter",
+                        "stt_condition_on_previous_text",
+                        "stt_word_timestamps",
+                    }:
                         if value.lower() not in ("true", "false", "1", "0", "yes", "no"):
-                            typer.echo("Invalid boolean for use_dynaudnorm. Skipping.")
+                            typer.echo(f"Invalid boolean for {selected_key}. Skipping.")
                             continue
                         data[selected_key] = value.lower() in ("true", "1", "yes")
+                        updated = True
+                        continue
+                    if selected_key in {
+                        "stt_batch_size",
+                        "stt_beam_size",
+                        "stt_vad_min_silence_duration_ms",
+                        "stt_cpu_threads",
+                        "stt_num_workers",
+                    }:
+                        try:
+                            numeric_value_stt = int(value)
+                            minimum = 0 if selected_key == "stt_cpu_threads" else 1
+                            if numeric_value_stt < minimum:
+                                raise ValueError()
+                        except ValueError:
+                            typer.echo(f"Invalid integer for {selected_key}. Skipping.")
+                            continue
+                        data[selected_key] = numeric_value_stt
+                        updated = True
+                        continue
+                    if selected_key == "stt_temperature":
+                        try:
+                            data[selected_key] = float(value)
+                        except ValueError:
+                            typer.echo("Invalid STT temperature. Skipping.")
+                            continue
                         updated = True
                         continue
                     if selected_key == "dynaudnorm_f":

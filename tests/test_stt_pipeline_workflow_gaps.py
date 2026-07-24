@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 
 import pytest
@@ -6,7 +7,12 @@ import pytest
 from lecture_auto.session_metadata_store import SessionMetadataStore
 from lecture_auto.session_service import SessionCommandError, SessionService
 from lecture_auto.stt_config import STTConfig
-from lecture_auto.stt_runtime import STTResult, STTTransientNetworkError
+from lecture_auto.stt_runtime import (
+    DiarizedSegment,
+    STTResult,
+    STTTransientNetworkError,
+    WordTimestamp,
+)
 
 
 class TwoFailureAPIAdapter:
@@ -61,6 +67,60 @@ def test_transcription_writes_raw_transcript_file_under_transcripts_folder(tmp_p
     assert f"transcript for {expected_audio_path}" in content
     assert not re.search(r"\[\d{2}:\d{2} - \d{2}:\d{2}\]", content)
     assert "\n" not in content.strip()
+
+
+def test_local_transcription_writes_confidence_sidecar(tmp_path: Path) -> None:
+    class ConfidenceAdapter:
+        def transcribe(self, *, audio_path: str) -> STTResult:
+            return STTResult(
+                transcript_text="강의 내용",
+                provider="faster-whisper",
+                mode="local",
+                language="ko",
+                segments=[
+                    DiarizedSegment(
+                        speaker="Speaker",
+                        start_time=1.25,
+                        end_time=2.5,
+                        text="강의 내용",
+                        avg_logprob=-0.3,
+                        compression_ratio=1.1,
+                        no_speech_prob=0.02,
+                        temperature=0.0,
+                        words=[
+                            WordTimestamp(
+                                word="강의",
+                                start_time=1.25,
+                                end_time=1.7,
+                                probability=0.91,
+                            )
+                        ],
+                    )
+                ],
+                metadata={"selected_device": "cpu"},
+            )
+
+    store = SessionMetadataStore(tmp_path / "config" / "sessions.json")
+    service = SessionService(
+        store=store,
+        stt_config=STTConfig(mode="local", local_model_name="base"),
+        local_stt_adapter=ConfidenceAdapter(),
+    )
+    service.session_create("session-sidecar", "2026-07-25")
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"wav")
+    service.import_audio("session-sidecar", str(source))
+
+    result = service.transcribe_session("session-sidecar")
+
+    sidecar = tmp_path / "transcripts" / "session-sidecar-raw.stt.json"
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert result.payload["transcript_metadata_file_path"] == (
+        "transcripts/session-sidecar-raw.stt.json"
+    )
+    assert payload["metadata"]["selected_device"] == "cpu"
+    assert payload["segments"][0]["avg_logprob"] == -0.3
+    assert payload["segments"][0]["words"][0]["probability"] == 0.91
 
 
 def test_api_transient_failures_stop_after_retry_cap_and_return_category_error(tmp_path: Path) -> None:
