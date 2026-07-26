@@ -1079,6 +1079,13 @@ class SettingsPage(QWidget):
         self.stt_hotwords = QLineEdit()
         self.stt_cpu_threads = NoWheelSpinBox(); self.stt_cpu_threads.setRange(0, 256)
         self.stt_num_workers = NoWheelSpinBox(); self.stt_num_workers.setRange(1, 32)
+        self.stt_quality_retry = QCheckBox()
+        self.stt_quality_retry_model = QLineEdit()
+        self.stt_quality_retry_model.setPlaceholderText("비움 = 1차 모델 재사용")
+        self.stt_quality_retry_beam = NoWheelSpinBox(); self.stt_quality_retry_beam.setRange(1, 20)
+        self.stt_quality_retry_context = NoWheelDoubleSpinBox(); self.stt_quality_retry_context.setRange(0.0, 10.0); self.stt_quality_retry_context.setDecimals(1)
+        self.stt_quality_retry_windows = NoWheelSpinBox(); self.stt_quality_retry_windows.setRange(0, 64)
+        self.stt_quality_retry_seconds = NoWheelDoubleSpinBox(); self.stt_quality_retry_seconds.setRange(0.0, 3600.0); self.stt_quality_retry_seconds.setDecimals(1)
         self.dynaudnorm = QCheckBox()
         self.dynaudnorm_f = NoWheelSpinBox(); self.dynaudnorm_f.setRange(10, 8000)
         self.dynaudnorm_g = NoWheelSpinBox(); self.dynaudnorm_g.setRange(3, 301); self.dynaudnorm_g.setSingleStep(2)
@@ -1100,6 +1107,12 @@ class SettingsPage(QWidget):
         form.addRow("Hotwords", self.stt_hotwords)
         form.addRow("CPU threads (0=자동)", self.stt_cpu_threads)
         form.addRow("Workers", self.stt_num_workers)
+        form.addRow("저신뢰 구간 재전사", self.stt_quality_retry)
+        form.addRow("재전사 모델", self.stt_quality_retry_model)
+        form.addRow("재전사 beam", self.stt_quality_retry_beam)
+        form.addRow("재전사 문맥 (초)", self.stt_quality_retry_context)
+        form.addRow("재전사 최대 구간", self.stt_quality_retry_windows)
+        form.addRow("재전사 최대 길이 (초)", self.stt_quality_retry_seconds)
         self.stt_hardware_guide = QLabel(LOCAL_STT_HARDWARE_GUIDE)
         self.stt_hardware_guide.setObjectName("SettingsActionBody")
         self.stt_hardware_guide.setWordWrap(True)
@@ -1146,6 +1159,12 @@ class SettingsPage(QWidget):
             self.stt_hotwords,
             self.stt_cpu_threads,
             self.stt_num_workers,
+            self.stt_quality_retry,
+            self.stt_quality_retry_model,
+            self.stt_quality_retry_beam,
+            self.stt_quality_retry_context,
+            self.stt_quality_retry_windows,
+            self.stt_quality_retry_seconds,
             self.stt_hardware_guide,
         )
         self._gemini_controls = controls_with_labels(self.llm_key)
@@ -1332,6 +1351,12 @@ class SettingsPage(QWidget):
         self.stt_hotwords.setText(cfg.stt.hotwords or "")
         self.stt_cpu_threads.setValue(cfg.stt.cpu_threads)
         self.stt_num_workers.setValue(cfg.stt.num_workers)
+        self.stt_quality_retry.setChecked(cfg.stt.quality_retry_enabled)
+        self.stt_quality_retry_model.setText(cfg.stt.quality_retry_model or "")
+        self.stt_quality_retry_beam.setValue(cfg.stt.quality_retry_beam_size)
+        self.stt_quality_retry_context.setValue(cfg.stt.quality_retry_context_seconds)
+        self.stt_quality_retry_windows.setValue(cfg.stt.quality_retry_max_windows)
+        self.stt_quality_retry_seconds.setValue(cfg.stt.quality_retry_max_seconds)
         self.dynaudnorm.setChecked(cfg.stt.use_dynaudnorm)
         self.dynaudnorm_f.setValue(cfg.stt.dynaudnorm_f or 150)
         self.dynaudnorm_g.setValue(cfg.stt.dynaudnorm_g or 15)
@@ -1526,6 +1551,12 @@ class SettingsPage(QWidget):
                 hotwords=self.stt_hotwords.text().strip() or None,
                 cpu_threads=self.stt_cpu_threads.value(),
                 num_workers=self.stt_num_workers.value(),
+                quality_retry_enabled=self.stt_quality_retry.isChecked(),
+                quality_retry_model=self.stt_quality_retry_model.text().strip() or None,
+                quality_retry_beam_size=self.stt_quality_retry_beam.value(),
+                quality_retry_context_seconds=self.stt_quality_retry_context.value(),
+                quality_retry_max_windows=self.stt_quality_retry_windows.value(),
+                quality_retry_max_seconds=self.stt_quality_retry_seconds.value(),
                 use_dynaudnorm=self.dynaudnorm.isChecked(),
                 dynaudnorm_f=self.dynaudnorm_f.value(),
                 dynaudnorm_g=self.dynaudnorm_g.value() | 1,
@@ -1846,6 +1877,7 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "오류", text)
 
     def reload_services(self, config: AppConfig) -> None:
+        self.container.runtime.close()
         self.config = config
         self.container = build_service_container(config)
         self.translator = Translator(config.ui_language)
@@ -1864,6 +1896,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.jobs.cancel_all()
+        self.container.runtime.close()
         event.accept()
 
 

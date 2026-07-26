@@ -54,3 +54,35 @@ def test_discover_pairs_ignores_unpaired_audio(tmp_path: Path) -> None:
     pairs = benchmark.discover_pairs(tmp_path)
 
     assert [pair.name for pair in pairs] == ["graphics"]
+
+
+def test_extended_metrics_cover_omission_terms_numbers_and_refine_safety() -> None:
+    reference = "CUDA 모델은 batch 16에서 정확도 95%를 기록했다."
+    hypothesis = "CUDA 모델은 정확도 95%를 기록했다."
+    metrics = benchmark.evaluate_text(
+        reference,
+        hypothesis,
+        glossary=["CUDA", "batch"],
+    )
+    audit = benchmark.audit_refinement(
+        hypothesis,
+        "CUDA 모델은 정확도 99%를 기록했다.",
+    )
+
+    assert metrics["omission_rate"] > 0
+    assert metrics["term_recall"] == 0.5
+    assert metrics["numeric_formula_recall"] == 0.5
+    assert audit.inserted_numbers == ("99%",)
+    assert audit.removed_numbers == ("95%",)
+
+
+def test_benchmark_merges_retry_payloads_by_timestamp() -> None:
+    primary = [
+        {"start_time": 0, "end_time": 2, "text": "keep"},
+        {"start_time": 2, "end_time": 4, "text": "replace"},
+    ]
+    retry = [{"start_time": 1.5, "end_time": 4.5, "text": "better"}]
+
+    merged = benchmark.merge_segment_payloads(primary, retry, [(1.5, 4.5)])
+
+    assert [value["text"] for value in merged] == ["keep", "better"]

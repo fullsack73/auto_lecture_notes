@@ -34,7 +34,7 @@
 ## 검증 규칙
 
 - 빠른 확인: `pytest -q`
-- 앱 경량 import/패키징 관련 변경: `python scripts/verify_lightweight_app.py`
+- 앱 경량 import/패키징 관련 변경: `python scripts/verify_lightweight_app.py --app <standalone-dir> --report <nuitka-report.xml>`
 - CLI 변경: 관련 `tests/test_*cli*.py`, `tests/test_cli_output*.py`와 `lecture-auto --help` 확인
 - GUI 변경: 관련 smoke test를 실행하고 실제 장치/API 없이도 실패 원인이 분명한지 확인
 - provider 연동은 자격 증명과 외부 서비스가 필요한 통합 테스트로 분리하며, 테스트에 실제 key를 넣지 않는다.

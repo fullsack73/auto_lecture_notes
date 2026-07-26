@@ -18,6 +18,7 @@ def _note_payload(
     questions: list[str] | None = None,
 ) -> dict:
     return {
+        "note_title": "Topic A의 핵심 원리",
         "topic_overview": ["Topic A overview"],
         "core_concepts": ["Core concept"],
         "detailed_explanations": [
@@ -138,7 +139,7 @@ def test_gemini_adapter_uploads_and_deletes_file() -> None:
                 material_path="/fake/path/to.pdf"
             )
             
-        assert "# Structured Lecture Notes" in res
+        assert res.startswith("# Topic A의 핵심 원리")
         assert "### Topic A details" in res
         assert "- Core concept" in res
         mock_client.files.upload.assert_called_once()

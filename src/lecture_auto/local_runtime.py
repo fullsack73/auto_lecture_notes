@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import uuid
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -72,6 +73,156 @@ class RuntimeStatus:
         }[feature]
 
 
+class _PersistentWorker:
+    def __init__(
+        self,
+        python: Path,
+        script: Path,
+        *,
+        idle_timeout_seconds: float,
+    ) -> None:
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+        self.process = subprocess.Popen(
+            [str(python), "-I", "-X", "utf8", str(script)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            bufsize=1,
+        )
+        self.events: queue.Queue[str | None] = queue.Queue()
+        self.stderr_tail: list[str] = []
+        self.lock = threading.Lock()
+        self.last_used = time.monotonic()
+        self.idle_timeout_seconds = idle_timeout_seconds
+        self._idle_timer: threading.Timer | None = None
+
+        def stdout_reader() -> None:
+            assert self.process.stdout is not None
+            for line in self.process.stdout:
+                self.events.put(line)
+            self.events.put(None)
+
+        def stderr_reader() -> None:
+            assert self.process.stderr is not None
+            for line in self.process.stderr:
+                self.stderr_tail.append(line.rstrip())
+                self.stderr_tail[:] = self.stderr_tail[-20:]
+
+        threading.Thread(target=stdout_reader, daemon=True).start()
+        threading.Thread(target=stderr_reader, daemon=True).start()
+
+    @property
+    def alive(self) -> bool:
+        return self.process.poll() is None
+
+    def request(
+        self,
+        request: dict[str, Any],
+        *,
+        progress: RuntimeProgress | None,
+        cancellation_token: CancellationToken | None,
+        timeout: float | None,
+    ) -> dict[str, Any]:
+        token = cancellation_token or CancellationToken()
+        with self.lock:
+            if self._idle_timer is not None:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+            if not self.alive:
+                raise LocalRuntimeError("Warm local AI worker is not running.")
+            assert self.process.stdin is not None
+            self.process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+            self.process.stdin.flush()
+            started = time.monotonic()
+            worker_error: str | None = None
+            while True:
+                if token.is_cancelled:
+                    self.terminate()
+                    raise TaskCancelledError("Local AI worker was canceled.")
+                if timeout is not None and time.monotonic() - started > timeout:
+                    self.terminate()
+                    raise LocalRuntimeError("Local AI worker timed out.")
+                try:
+                    line = self.events.get(timeout=0.1)
+                except queue.Empty:
+                    if not self.alive:
+                        break
+                    continue
+                if line is None:
+                    break
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event_type = event.get("type")
+                if event_type == "progress" and progress:
+                    progress(
+                        str(event.get("stage") or "working"),
+                        event.get("completed"),
+                        event.get("total"),
+                        str(event.get("message") or ""),
+                    )
+                elif event_type == "result":
+                    self.last_used = time.monotonic()
+                    self._schedule_idle_termination()
+                    value = event.get("result")
+                    return value if isinstance(value, dict) else {"value": value}
+                elif event_type == "error":
+                    worker_error = str(
+                        event.get("message") or event.get("code") or "Worker failed"
+                    )
+                    break
+            detail = worker_error or "\n".join(self.stderr_tail[-10:])
+            self.terminate()
+            raise LocalRuntimeError(
+                detail
+                or f"Local AI worker crashed with exit code {self.process.poll()}."
+            )
+
+    def terminate(self) -> None:
+        if self._idle_timer is not None:
+            self._idle_timer.cancel()
+            self._idle_timer = None
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+            try:
+                if stream:
+                    stream.close()
+            except OSError:
+                pass
+
+    def _schedule_idle_termination(self) -> None:
+        if self.idle_timeout_seconds <= 0:
+            return
+        expected_last_used = self.last_used
+
+        def expire() -> None:
+            if self.last_used != expected_last_used:
+                return
+            if not self.lock.acquire(blocking=False):
+                return
+            try:
+                if time.monotonic() - self.last_used >= self.idle_timeout_seconds:
+                    self.terminate()
+            finally:
+                self.lock.release()
+
+        self._idle_timer = threading.Timer(self.idle_timeout_seconds, expire)
+        self._idle_timer.daemon = True
+        self._idle_timer.start()
+
+
 def default_runtime_dir() -> Path:
     override = os.environ.get("LECTURE_AUTO_RUNTIME_DIR")
     if override:
@@ -117,6 +268,7 @@ class LocalRuntimeManager:
         allow_development_python: bool = True,
         worker_script: Path | None = None,
         gemini_worker_script: Path | None = None,
+        warm_worker_idle_timeout_seconds: float = 300.0,
     ) -> None:
         self.runtime_dir = Path(runtime_dir or default_runtime_dir())
         self.active_dir = self.runtime_dir / "active"
@@ -129,7 +281,32 @@ class LocalRuntimeManager:
         self.allow_development_python = allow_development_python
         self.worker_script = worker_script or self._resolve_worker_script()
         self.gemini_worker_script = gemini_worker_script or self._resolve_gemini_worker_script()
+        self.warm_worker_idle_timeout_seconds = max(
+            0.0,
+            float(
+                os.environ.get(
+                    "LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS",
+                    warm_worker_idle_timeout_seconds,
+                )
+            ),
+        )
+        self._warm_workers: dict[tuple[str, str], _PersistentWorker] = {}
+        self._warm_workers_lock = threading.Lock()
+        self._feature_pythons: dict[RuntimeFeature, Path] = {}
+        self._worker_finalizer = weakref.finalize(
+            self,
+            LocalRuntimeManager._finalize_workers,
+            self._warm_workers,
+        )
         self.last_probe_error: str | None = None
+
+    @staticmethod
+    def _finalize_workers(
+        workers: dict[tuple[str, str], _PersistentWorker],
+    ) -> None:
+        for worker in tuple(workers.values()):
+            worker.terminate()
+        workers.clear()
 
     def _resolve_worker_script(self) -> Path:
         if "__compiled__" in globals():
@@ -262,10 +439,14 @@ class LocalRuntimeManager:
             return RuntimeStatus(python_path=str(python), source=source, error=str(exc))
 
     def python_for(self, feature: RuntimeFeature) -> Path:
+        cached = self._feature_pythons.get(feature)
+        if cached is not None and cached.is_file():
+            return cached
         errors: list[str] = []
         for source, python in self.candidate_pythons():
             status = self.probe_python(python, source=source)
             if status.supports(feature) and not status.error:
+                self._feature_pythons[feature] = python
                 return python
             if status.error:
                 errors.append(status.error)
@@ -327,8 +508,10 @@ class LocalRuntimeManager:
             if status.error or missing:
                 raise LocalRuntimeError(status.error or f"Runtime validation failed for: {', '.join(missing)}")
             if self.active_dir.exists():
+                self.close()
                 self.active_dir.replace(backup)
             staging.replace(self.active_dir)
+            self._feature_pythons.clear()
             shutil.rmtree(backup, ignore_errors=True)
             self._step(progress, "complete", 4, 4, "Local AI runtime installed")
             return self.probe_python(_python_in_venv(self.active_dir), source="managed")
@@ -366,6 +549,8 @@ class LocalRuntimeManager:
     def remove(self) -> None:
         self._acquire_mutation()
         try:
+            self.close()
+            self._feature_pythons.clear()
             shutil.rmtree(self.active_dir, ignore_errors=True)
             for path in self.runtime_dir.glob(".staging-*"):
                 shutil.rmtree(path, ignore_errors=True)
@@ -409,6 +594,15 @@ class LocalRuntimeManager:
     ) -> dict[str, Any]:
         python = self.python_for(feature)
         worker_script = self.gemini_worker_script if feature == "gemini" else self.worker_script
+        if feature == "whisper":
+            return self._run_persistent_worker(
+                python,
+                request,
+                worker_script=worker_script,
+                progress=progress,
+                cancellation_token=cancellation_token,
+                timeout=timeout,
+            )
         return self._run_worker(
             python,
             request,
@@ -417,6 +611,78 @@ class LocalRuntimeManager:
             cancellation_token=cancellation_token,
             timeout=timeout,
         )
+
+    def _run_persistent_worker(
+        self,
+        python: Path,
+        request: dict[str, Any],
+        *,
+        worker_script: Path,
+        progress: RuntimeProgress | None,
+        cancellation_token: CancellationToken | None,
+        timeout: float | None,
+    ) -> dict[str, Any]:
+        if not worker_script.is_file():
+            raise LocalRuntimeError(f"Add-on worker script is missing: {worker_script}")
+        key = (str(python.resolve()), str(worker_script.resolve()))
+        with self._warm_workers_lock:
+            self._reap_idle_workers_locked()
+            worker = self._warm_workers.get(key)
+            if worker is None or not worker.alive:
+                if worker is not None:
+                    worker.terminate()
+                worker = _PersistentWorker(
+                    python,
+                    worker_script,
+                    idle_timeout_seconds=self.warm_worker_idle_timeout_seconds,
+                )
+                self._warm_workers[key] = worker
+        try:
+            return worker.request(
+                request,
+                progress=progress,
+                cancellation_token=cancellation_token,
+                timeout=timeout,
+            )
+        except BaseException:
+            with self._warm_workers_lock:
+                if self._warm_workers.get(key) is worker:
+                    self._warm_workers.pop(key, None)
+            worker.terminate()
+            raise
+
+    def _reap_idle_workers_locked(self) -> None:
+        now = time.monotonic()
+        for key, worker in tuple(self._warm_workers.items()):
+            expired = (
+                self.warm_worker_idle_timeout_seconds == 0
+                or now - worker.last_used >= self.warm_worker_idle_timeout_seconds
+            )
+            if not worker.alive or expired:
+                worker.terminate()
+                self._warm_workers.pop(key, None)
+
+    def unload_whisper(self) -> int:
+        unloaded = 0
+        with self._warm_workers_lock:
+            workers = tuple(self._warm_workers.values())
+        for worker in workers:
+            if worker.alive:
+                result = worker.request(
+                    {"action": "unload_whisper"},
+                    progress=None,
+                    cancellation_token=None,
+                    timeout=30,
+                )
+                unloaded += int(result.get("unloaded_model_count") or 0)
+        return unloaded
+
+    def close(self) -> None:
+        with self._warm_workers_lock:
+            workers = tuple(self._warm_workers.values())
+            self._warm_workers.clear()
+        for worker in workers:
+            worker.terminate()
 
     def _resolve_uv(self) -> Path:
         candidates: list[Path] = []

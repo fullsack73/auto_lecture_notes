@@ -26,11 +26,17 @@ class GeminiAddonAdapter:
         )
         return str(result.get("text") or "")
 
-    def refine_transcript(self, raw_text: str, context_topic: str | None = None) -> str:
+    def refine_transcript(
+        self,
+        raw_text: str,
+        context_topic: str | None = None,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
         return self._run(
             "gemini_refine_transcript",
             raw_text=raw_text,
             context_topic=context_topic,
+            evidence=evidence,
         )
 
     def generate_notes(

@@ -13,7 +13,7 @@ from pathlib import Path
 from prepare_ffmpeg_desktop import normalized_architecture, prepare
 
 
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.4"
 
 
 def native_platform() -> str:

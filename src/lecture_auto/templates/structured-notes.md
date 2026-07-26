@@ -1,4 +1,4 @@
-# Structured Lecture Notes
+# {Content-based Lecture Title}
 
 ## Topic Overview
 -

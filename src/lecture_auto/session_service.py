@@ -397,6 +397,11 @@ class SessionService:
                         course=session.get("course"),
                     )
                     rename_pairs.append((old_edited, new_edited))
+                    old_audit = old_edited.with_suffix(".audit.json")
+                    if old_audit.exists():
+                        rename_pairs.append(
+                            (old_audit, new_edited.with_suffix(".audit.json"))
+                        )
 
                 # Perform renames before touching metadata
                 try:
@@ -450,6 +455,9 @@ class SessionService:
         )
         if edited_transcript.exists():
             files_to_delete.append(edited_transcript)
+        edited_audit = edited_transcript.with_suffix(".audit.json")
+        if edited_audit.exists():
+            files_to_delete.append(edited_audit)
             
         deleted = self.store.delete(session_id)
         if not deleted:
@@ -1509,10 +1517,45 @@ class SessionService:
             )
 
         context_topic = session.get("title") or session.get("course")
+        refinement_evidence = None
+        metadata_relative_path = session.get("transcript_metadata_file_path")
+        if isinstance(metadata_relative_path, str) and metadata_relative_path:
+            metadata_path = self.store.metadata_file.parent.parent / metadata_relative_path
+            try:
+                from lecture_auto.stt_refinement import build_refinement_evidence
+
+                metadata_payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if isinstance(metadata_payload, dict):
+                    refinement_evidence = build_refinement_evidence(metadata_payload)
+                    from lecture_auto.stt_glossary import extract_glossary_terms
+
+                    material_path = None
+                    relative_material = session.get("material_file_path")
+                    if isinstance(relative_material, str) and relative_material:
+                        material_path = (
+                            self.store.metadata_file.parent.parent / relative_material
+                        )
+                    refinement_evidence["glossary"] = extract_glossary_terms(
+                        title=session.get("title"),
+                        course=session.get("course"),
+                        material_path=material_path,
+                    )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                refinement_evidence = None
         
         report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="llm_refine", completed=1, total=2, message="Refining transcript.")
         try:
-            refined_text = self.llm_adapter.refine_transcript(raw_text, context_topic=context_topic)
+            if refinement_evidence:
+                refined_text = self.llm_adapter.refine_transcript(
+                    raw_text,
+                    context_topic=context_topic,
+                    evidence=refinement_evidence,
+                )
+            else:
+                refined_text = self.llm_adapter.refine_transcript(
+                    raw_text,
+                    context_topic=context_topic,
+                )
         except LLMConfigError as exc:
             raise SessionCommandError(code="LLM_CONFIG_FAILED", message=str(exc), guidance="Check LLM configuration.", exit_code=1)
         except LLMProviderAuthError as exc:
@@ -1523,12 +1566,23 @@ class SessionService:
             raise SessionCommandError(code="LLM_UNKNOWN_ERROR", message=f"Unexpected refinement failure: {exc}", guidance="Check debug logs.", exit_code=1)
 
         token.raise_if_cancelled()
+        edited_relative_path = self.store.build_edited_transcript_path(
+            session_id,
+            course=session.get("course"),
+        )
         self._write_transcript_file(
-            transcript_relative_path=self.store.build_edited_transcript_path(
-                session_id,
-                course=session.get("course"),
-            ),
+            transcript_relative_path=edited_relative_path,
             transcript_text=refined_text
+        )
+        from lecture_auto.stt_refinement import audit_refinement, write_refinement_audit
+
+        audit_relative_path = str(
+            Path(edited_relative_path).with_suffix(".audit.json")
+        ).replace("\\", "/")
+        audit = audit_refinement(raw_text, refined_text)
+        write_refinement_audit(
+            self.store.metadata_file.parent.parent / audit_relative_path,
+            audit,
         )
 
         # Output payload logic for formatting
@@ -1536,7 +1590,16 @@ class SessionService:
         report_progress(progress_callback, job_id=job_id, session_id=session_id, stage="complete", completed=2, total=2, message="Refined transcript saved.")
         return CommandResult(
             command="transcript refine",
-            payload={"session_id": session_id, "target_used": target_used},
+            payload={
+                "session_id": session_id,
+                "target_used": target_used,
+                "refinement_audit_file_path": audit_relative_path,
+                "refinement_warnings": {
+                    "inserted_numbers": list(audit.inserted_numbers),
+                    "removed_numbers": list(audit.removed_numbers),
+                    "changed_named_terms": list(audit.changed_named_terms),
+                },
+            },
             message=f"Transcript successfully refined from {target_used} source."
         )
 
@@ -1699,6 +1762,28 @@ class SessionService:
             if self._local_stt_adapter is not None:
                 return self._local_stt_adapter
             from lecture_auto.local_worker_adapter import WorkerWhisperSTTRuntimeAdapter
+            from lecture_auto.stt_glossary import extract_glossary_terms, merge_hotwords
+
+            session_hotwords = self.stt_config.hotwords
+            if session_id:
+                session = self.store.get_by_session_id(session_id)
+                if session:
+                    material_path = None
+                    relative_material = session.get("material_file_path")
+                    if isinstance(relative_material, str) and relative_material:
+                        material_path = (
+                            self.store.metadata_file.parent.parent / relative_material
+                        )
+                    glossary = extract_glossary_terms(
+                        title=session.get("title"),
+                        course=session.get("course"),
+                        material_path=material_path,
+                    )
+                    session_hotwords = merge_hotwords(
+                        self.stt_config.hotwords,
+                        glossary,
+                    )
+
             def runtime_progress(stage, completed, total, message) -> None:
                 report_progress(
                     progress_callback,
@@ -1714,6 +1799,7 @@ class SessionService:
                 runtime_manager=self.local_runtime_manager or LocalRuntimeManager(),
                 progress=runtime_progress,
                 cancellation_token=cancellation_token,
+                hotwords=session_hotwords,
             )
 
         if self._api_stt_adapter is not None:

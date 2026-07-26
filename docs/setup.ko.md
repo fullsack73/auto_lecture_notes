@@ -223,6 +223,35 @@ lecture-auto config set \
 `*-raw.stt.json` sidecar에 기록된다. 작은 모델의 batch 전사에서 반복이 감지되면
 `small` 이상 모델을 쓰거나 batch 1로 비교한다.
 
+저신뢰 구간만 최대 8개·총 120초 재전사하는 기본 안전장치는 다음처럼 조정할 수 있다.
+
+```bash
+lecture-auto config set \
+  --stt-quality-retry \
+  --stt-quality-retry-model large-v3 \
+  --stt-quality-retry-beam-size 5 \
+  --stt-quality-retry-context-seconds 1.5 \
+  --stt-quality-retry-max-windows 8 \
+  --stt-quality-retry-max-seconds 120
+```
+
+세션 제목·과목·PDF/PPTX 자료의 용어는 길이/개수 제한 후 hotword로 합쳐지며,
+자료에만 있는 내용을 transcript 사실로 삽입하지 않는다. worker 모델 cache의 기본
+idle timeout은 300초이고 `LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS`로 바꿀 수 있다.
+
+개발 benchmark:
+
+```bash
+python scripts/benchmark_local_stt.py --list-profiles
+python scripts/benchmark_local_stt.py --list-backends
+python scripts/benchmark_local_stt.py \
+  --profile cpu-balanced --pair graphics --runs 2 --audio-preflight
+```
+
+`--runs 2` 이상이면 같은 worker/model의 cold/warm 시간을 분리한다.
+`--refined-dir <dir>`은 `refined-<pair>.md`를 찾아 refine 전후 정확도와 숫자·
+고유명사 변경을 평가한다. 결과와 hypothesis는 `build/stt-benchmarks/`에만 남는다.
+
 NVIDIA profile은 `--stt-device cuda --stt-compute-type float16`을 쓸 수 있다.
 CTranslate2와 호환되는 CUDA 12 cuBLAS/cuDNN DLL이 없으면 명시적으로 실패한다.
 이때 `--stt-device cpu --stt-compute-type int8`로 바꾸거나 CUDA runtime을 설치한다.

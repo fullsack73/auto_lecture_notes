@@ -10,6 +10,7 @@ if sys.path and os.path.normcase(os.path.abspath(sys.path[0])) == _WORKER_DIR:
 
 import importlib
 import importlib.metadata
+import gc
 import json
 import platform
 import shutil
@@ -17,6 +18,7 @@ import subprocess
 import tempfile
 import time
 import traceback
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +32,9 @@ PACKAGE_MODULES = {
     "onnxruntime": "onnxruntime",
     "google_genai": "google.genai",
 }
+
+_WHISPER_MODELS: OrderedDict[tuple[object, ...], Any] = OrderedDict()
+_MAX_CACHED_WHISPER_MODELS = 2
 
 TORCHAUDIO_COMPAT = r'''
 import sys
@@ -175,6 +180,8 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
         "compute_type": compute_type,
     }
     cpu_threads = int(request.get("cpu_threads") or 0)
+    if cpu_threads <= 0 and request.get("auto_cpu_threads") and device == "cpu":
+        cpu_threads = _physical_cpu_count()
     if cpu_threads > 0:
         kwargs["cpu_threads"] = cpu_threads
     num_workers = int(request.get("num_workers") or 1)
@@ -183,9 +190,27 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
     download_root = request.get("download_root")
     if download_root and model_source == model:
         kwargs["download_root"] = str(download_root)
+    cache_key = (
+        id(WhisperModel),
+        model_source,
+        device,
+        compute_type,
+        cpu_threads,
+        num_workers,
+        str(download_root or ""),
+    )
+    warm_start = cache_key in _WHISPER_MODELS
     try:
-        runtime = WhisperModel(model_source, **kwargs)
+        if warm_start:
+            runtime = _WHISPER_MODELS.pop(cache_key)
+            _WHISPER_MODELS[cache_key] = runtime
+        else:
+            runtime = WhisperModel(model_source, **kwargs)
+            _WHISPER_MODELS[cache_key] = runtime
+            _evict_whisper_models(keep_key=cache_key)
     except Exception as exc:
+        if _is_memory_exhaustion(exc):
+            unload_whisper_models()
         if device == "cuda":
             raise RuntimeError(
                 "CUDA Whisper initialization failed. Install compatible CUDA 12 "
@@ -194,7 +219,13 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
             ) from exc
         raise
     model_loaded_at = time.perf_counter()
-    emit("progress", stage="transcribing", completed=1, total=3, message="Transcribing audio")
+    emit(
+        "progress",
+        stage="transcribing",
+        completed=1,
+        total=3,
+        message="Transcribing audio (warm model)" if warm_start else "Transcribing audio",
+    )
     transcribe_kwargs: dict[str, Any] = {}
     if request.get("language"):
         transcribe_kwargs["language"] = request["language"]
@@ -291,12 +322,47 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
                     f"{effective_batch_size}"
                 ),
             )
+    retry_segments: list[dict[str, Any]] = []
+    retry_windows: list[tuple[float, float]] = []
+    full_model_upgrade_recommended = False
+    if request.get("quality_retry_enabled", False) and segments:
+        quality = _assess_segments(segments)
+        full_model_upgrade_recommended = _full_retry_recommended(quality)
+        if not full_model_upgrade_recommended:
+            retry_windows = _build_retry_windows(
+                quality,
+                duration=duration,
+                context_seconds=float(
+                    request.get("quality_retry_context_seconds") or 1.5
+                ),
+                maximum_windows=int(request.get("quality_retry_max_windows") or 8),
+                maximum_total_seconds=float(
+                    request.get("quality_retry_max_seconds") or 120.0
+                ),
+            )
+        if retry_windows:
+            emit(
+                "progress",
+                stage="quality_retry",
+                completed=0,
+                total=len(retry_windows),
+                message=f"Re-transcribing {len(retry_windows)} suspect windows",
+            )
+            retry_segments = _transcribe_retry_windows(
+                runtime,
+                request,
+                retry_windows,
+                language=getattr(info, "language", None) or request.get("language"),
+            )
+
     emit("progress", stage="complete", completed=3, total=3, message="Transcription complete")
     finished_at = time.perf_counter()
     return {
         "transcript_text": " ".join(text_parts).strip(),
         "language": getattr(info, "language", None) or request.get("language"),
         "segments": segments,
+        "retry_segments": retry_segments,
+        "retry_windows": [list(window) for window in retry_windows],
         "metadata": {
             "model": model,
             "requested_device": requested_device,
@@ -316,6 +382,9 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
                 getattr(info, "language_probability", None)
             ),
             "model_load_seconds": model_loaded_at - started_at,
+            "warm_start": warm_start,
+            "model_cache_size": len(_WHISPER_MODELS),
+            "cpu_threads": cpu_threads,
             "transcription_seconds": finished_at - model_loaded_at,
             "worker_total_seconds": finished_at - started_at,
             "python_version": platform.python_version(),
@@ -324,7 +393,13 @@ def whisper(request: dict[str, Any]) -> dict[str, Any]:
             "supported_compute_types": sorted(supported),
             "cuda_device_count": ctranslate2.get_cuda_device_count(),
             "cpu_count": os.cpu_count(),
+            "physical_cpu_count": _physical_cpu_count(),
+            "peak_ram_bytes": _peak_ram_bytes(),
+            "peak_vram_bytes": _peak_vram_bytes(device),
             "platform": platform.platform(),
+            "full_model_upgrade_recommended": full_model_upgrade_recommended,
+            "retry_model": request.get("quality_retry_model") or model,
+            "retry_beam_size": int(request.get("quality_retry_beam_size") or 5),
         },
     }
 
@@ -333,6 +408,368 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _segment_payload(segment: Any) -> dict[str, Any]:
+    return {
+        "speaker": "Speaker 1",
+        "start_time": float(segment.start),
+        "end_time": float(segment.end),
+        "text": str(segment.text).strip(),
+        "avg_logprob": _optional_float(getattr(segment, "avg_logprob", None)),
+        "compression_ratio": _optional_float(
+            getattr(segment, "compression_ratio", None)
+        ),
+        "no_speech_prob": _optional_float(
+            getattr(segment, "no_speech_prob", None)
+        ),
+        "temperature": _optional_float(getattr(segment, "temperature", None)),
+        "words": [
+            {
+                "word": str(getattr(word, "word", "")),
+                "start_time": float(getattr(word, "start", 0) or 0),
+                "end_time": float(getattr(word, "end", 0) or 0),
+                "probability": _optional_float(getattr(word, "probability", None)),
+            }
+            for word in (getattr(segment, "words", None) or [])
+        ],
+    }
+
+
+def _assess_segments(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    suspects: list[dict[str, Any]] = []
+    for segment in segments:
+        reasons: list[str] = []
+        text = str(segment.get("text") or "").strip()
+        duration = max(
+            0.0,
+            float(segment.get("end_time") or 0)
+            - float(segment.get("start_time") or 0),
+        )
+        if (
+            segment.get("avg_logprob") is not None
+            and float(segment["avg_logprob"]) < -1.10
+        ):
+            reasons.append("low_logprob")
+        if (
+            segment.get("compression_ratio") is not None
+            and float(segment["compression_ratio"]) > 2.45
+        ):
+            reasons.append("high_compression_ratio")
+        if (
+            text
+            and segment.get("no_speech_prob") is not None
+            and float(segment["no_speech_prob"]) > 0.70
+        ):
+            reasons.append("speech_on_high_no_speech_probability")
+        if duration and len(text.replace(" ", "")) / duration > 13.0:
+            reasons.append("excessive_character_rate")
+        words = text.casefold().split()
+        if any(
+            words[index : index + size] == words[index + size : index + size * 2]
+            for size in range(1, min(6, len(words) // 2 + 1))
+            for index in range(0, len(words) - size * 2 + 1)
+        ):
+            reasons.append("repetition_loop")
+        if reasons:
+            suspects.append(
+                {
+                    "start_time": float(segment.get("start_time") or 0),
+                    "end_time": float(segment.get("end_time") or 0),
+                    "reasons": reasons,
+                }
+            )
+    total_duration = max(
+        (float(segment.get("end_time") or 0) for segment in segments),
+        default=0.0,
+    )
+    suspect_duration = sum(
+        max(0.0, value["end_time"] - value["start_time"]) for value in suspects
+    )
+    return {
+        "segment_count": len(segments),
+        "suspect_segment_count": len(suspects),
+        "suspect_duration_ratio": (
+            min(1.0, suspect_duration / total_duration) if total_duration else 0.0
+        ),
+        "suspect_segments": suspects,
+    }
+
+
+def _full_retry_recommended(quality: dict[str, Any]) -> bool:
+    count = int(quality.get("segment_count") or 0)
+    suspect_count = int(quality.get("suspect_segment_count") or 0)
+    return (
+        float(quality.get("suspect_duration_ratio") or 0) >= 0.60
+        or (suspect_count / count if count else 0.0) >= 0.60
+    )
+
+
+def _build_retry_windows(
+    quality: dict[str, Any],
+    *,
+    duration: float,
+    context_seconds: float,
+    maximum_windows: int,
+    maximum_total_seconds: float,
+) -> list[tuple[float, float]]:
+    candidates = [
+        (
+            max(0.0, float(value.get("start_time") or 0) - context_seconds),
+            min(duration, float(value.get("end_time") or 0) + context_seconds),
+        )
+        for value in quality.get("suspect_segments", [])
+        if isinstance(value, dict)
+    ]
+    merged: list[tuple[float, float]] = []
+    for start, end in sorted(candidates):
+        if end <= start:
+            continue
+        if merged and start <= merged[-1][1] + 0.25:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    result: list[tuple[float, float]] = []
+    remaining = maximum_total_seconds
+    for start, end in merged[: max(0, maximum_windows)]:
+        span = min(end - start, remaining)
+        if span <= 0:
+            break
+        result.append((start, start + span))
+        remaining -= span
+    return result
+
+
+def _transcribe_retry_windows(
+    primary_runtime: Any,
+    request: dict[str, Any],
+    windows: list[tuple[float, float]],
+    *,
+    language: str | None,
+) -> list[dict[str, Any]]:
+    runtime = _retry_runtime(primary_runtime, request)
+    kwargs: dict[str, Any] = {
+        "beam_size": int(request.get("quality_retry_beam_size") or 5),
+        "temperature": 0.0,
+        "vad_filter": True,
+        "vad_parameters": {
+            "min_silence_duration_ms": int(
+                request.get("vad_min_silence_duration_ms") or 2000
+            )
+        },
+        "condition_on_previous_text": True,
+        "word_timestamps": bool(request.get("word_timestamps", False)),
+    }
+    if language:
+        kwargs["language"] = language
+    if request.get("hotwords"):
+        kwargs["hotwords"] = str(request["hotwords"])
+
+    values: list[dict[str, Any]] = []
+    for index, (start, end) in enumerate(windows, start=1):
+        attempt = dict(kwargs)
+        attempt["clip_timestamps"] = f"{start:.3f},{end:.3f}"
+        raw_segments, _info = runtime.transcribe(str(request["audio_path"]), **attempt)
+        for segment in raw_segments:
+            payload = _segment_payload(segment)
+            # Some bindings return clip-relative timestamps; normalize them defensively.
+            if payload["end_time"] <= end - start + 0.25 and payload["start_time"] < start:
+                payload["start_time"] = float(payload["start_time"]) + start
+                payload["end_time"] = float(payload["end_time"]) + start
+            values.append(payload)
+        emit(
+            "progress",
+            stage="quality_retry",
+            completed=index,
+            total=len(windows),
+            message=f"Re-transcribed suspect window {index}/{len(windows)}",
+        )
+    return values
+
+
+def _retry_runtime(primary_runtime: Any, request: dict[str, Any]) -> Any:
+    retry_model = request.get("quality_retry_model")
+    primary_model = str(request.get("model") or "base")
+    if not retry_model or str(retry_model) == primary_model:
+        return primary_runtime
+
+    from faster_whisper import WhisperModel
+
+    device = str(request.get("device") or "cpu")
+    if device == "auto":
+        import ctranslate2
+
+        device = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+    compute_type = str(request.get("compute_type") or "int8")
+    if compute_type == "auto":
+        import ctranslate2
+
+        supported = ctranslate2.get_supported_compute_types(device)
+        compute_type = (
+            "float16"
+            if device == "cuda" and "float16" in supported
+            else "int8_float16"
+            if device == "cuda"
+            else "int8"
+            if "int8" in supported
+            else "float32"
+        )
+    cpu_threads = int(request.get("cpu_threads") or 0)
+    if cpu_threads <= 0 and request.get("auto_cpu_threads") and device == "cpu":
+        cpu_threads = _physical_cpu_count()
+    key = (
+        id(WhisperModel),
+        str(retry_model),
+        device,
+        compute_type,
+        cpu_threads,
+        int(request.get("num_workers") or 1),
+        str(request.get("download_root") or ""),
+    )
+    if key in _WHISPER_MODELS:
+        runtime = _WHISPER_MODELS.pop(key)
+        _WHISPER_MODELS[key] = runtime
+        return runtime
+    kwargs: dict[str, Any] = {"device": device, "compute_type": compute_type}
+    if cpu_threads > 0:
+        kwargs["cpu_threads"] = cpu_threads
+    if int(request.get("num_workers") or 1) > 1:
+        kwargs["num_workers"] = int(request["num_workers"])
+    if request.get("download_root"):
+        kwargs["download_root"] = str(request["download_root"])
+    runtime = WhisperModel(str(retry_model), **kwargs)
+    _WHISPER_MODELS[key] = runtime
+    _evict_whisper_models(keep_key=key)
+    return runtime
+
+
+def unload_whisper_models() -> int:
+    count = len(_WHISPER_MODELS)
+    _WHISPER_MODELS.clear()
+    gc.collect()
+    return count
+
+
+def _evict_whisper_models(*, keep_key: tuple[object, ...]) -> None:
+    while len(_WHISPER_MODELS) > _MAX_CACHED_WHISPER_MODELS:
+        key, _runtime = _WHISPER_MODELS.popitem(last=False)
+        if key == keep_key and _WHISPER_MODELS:
+            _WHISPER_MODELS[key] = _runtime
+            continue
+        del _runtime
+        gc.collect()
+
+
+def _physical_cpu_count() -> int:
+    if platform.system() == "Linux":
+        try:
+            pairs: set[tuple[str, str]] = set()
+            physical_id = ""
+            core_id = ""
+            with open("/proc/cpuinfo", encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
+                    if not line.strip():
+                        if physical_id or core_id:
+                            pairs.add((physical_id, core_id))
+                        physical_id = ""
+                        core_id = ""
+                    elif line.startswith("physical id"):
+                        physical_id = line.split(":", 1)[1].strip()
+                    elif line.startswith("core id"):
+                        core_id = line.split(":", 1)[1].strip()
+            if pairs:
+                return len(pairs)
+        except OSError:
+            pass
+    if platform.system() == "Darwin":
+        try:
+            value = subprocess.run(
+                ["sysctl", "-n", "hw.physicalcpu"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=2,
+            ).stdout.strip()
+            if value.isdigit() and int(value) > 0:
+                return int(value)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    logical = os.cpu_count() or 1
+    return max(1, logical // 2 if logical > 1 else logical)
+
+
+def _peak_ram_bytes() -> int | None:
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class Counters(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = Counters()
+            counters.cb = ctypes.sizeof(counters)
+            get_current_process = ctypes.windll.kernel32.GetCurrentProcess
+            get_current_process.restype = wintypes.HANDLE
+            handle = get_current_process()
+            get_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
+            get_memory_info.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(Counters),
+                wintypes.DWORD,
+            ]
+            get_memory_info.restype = wintypes.BOOL
+            if get_memory_info(
+                handle, ctypes.byref(counters), counters.cb
+            ):
+                return int(counters.PeakWorkingSetSize)
+        except (AttributeError, OSError):
+            return None
+    try:
+        import resource
+
+        value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return int(value * (1 if platform.system() == "Darwin" else 1024))
+    except (ImportError, ValueError):
+        return None
+
+
+def _peak_vram_bytes(device: str) -> int | None:
+    if device != "cuda":
+        return None
+    executable = shutil.which("nvidia-smi")
+    if not executable:
+        return None
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=3,
+        )
+        for line in completed.stdout.splitlines():
+            pid, memory = [part.strip() for part in line.split(",", 1)]
+            if int(pid) == os.getpid():
+                return int(memory) * 1024 * 1024
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return None
 
 
 def _package_version(name: str) -> str | None:
@@ -550,27 +987,44 @@ def dispatch(request: dict[str, Any]) -> dict[str, Any]:
         return audio_preflight(request)
     if action == "deepfilter":
         return deepfilter(request)
+    if action == "unload_whisper":
+        return {"unloaded_model_count": unload_whisper_models()}
+    if action == "shutdown":
+        return {"shutdown": True, "unloaded_model_count": unload_whisper_models()}
     raise ValueError(f"Unknown worker action: {action}")
 
 
 def main() -> None:
-    line = sys.stdin.readline()
-    if not line:
+    handled = False
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        handled = True
+        try:
+            request = json.loads(line)
+            emit(
+                "progress",
+                stage="started",
+                completed=0,
+                total=None,
+                message="Worker started",
+            )
+            result = dispatch(request)
+            emit("result", result=result)
+            if request.get("action") == "shutdown":
+                return
+        except BaseException as exc:
+            emit(
+                "error",
+                code=type(exc).__name__,
+                message=str(exc),
+                traceback="".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )[-4000:],
+            )
+    if not handled:
         emit("error", code="EMPTY_REQUEST", message="Worker request was not provided.")
         raise SystemExit(2)
-    try:
-        request = json.loads(line)
-        emit("progress", stage="started", completed=0, total=None, message="Worker started")
-        result = dispatch(request)
-        emit("result", result=result)
-    except BaseException as exc:
-        emit(
-            "error",
-            code=type(exc).__name__,
-            message=str(exc),
-            traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-4000:],
-        )
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":

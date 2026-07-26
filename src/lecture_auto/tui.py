@@ -857,6 +857,12 @@ def _menu_config() -> bool:
                 ("stt_hotwords", "Hotwords/glossary terms"),
                 ("stt_cpu_threads", "CPU threads (0 = runtime default)"),
                 ("stt_num_workers", "Whisper workers"),
+                ("stt_quality_retry_enabled", "Selective quality retry (True or False)"),
+                ("stt_quality_retry_model", "Stronger model for suspect windows (optional)"),
+                ("stt_quality_retry_beam_size", "Selective retry beam size"),
+                ("stt_quality_retry_context_seconds", "Retry context padding (seconds)"),
+                ("stt_quality_retry_max_windows", "Maximum retry windows"),
+                ("stt_quality_retry_max_seconds", "Maximum retried audio seconds"),
                 "── LLM (Large Language Model) ──",
                 ("llm_language", "LLM language (e.g. korean)"),
                 ("llm_provider", "LLM provider (Google API or local)"),
@@ -987,6 +993,7 @@ def _menu_config() -> bool:
                         "stt_vad_filter",
                         "stt_condition_on_previous_text",
                         "stt_word_timestamps",
+                        "stt_quality_retry_enabled",
                     }:
                         if value.lower() not in ("true", "false", "1", "0", "yes", "no"):
                             typer.echo(f"Invalid boolean for {selected_key}. Skipping.")
@@ -1000,10 +1007,17 @@ def _menu_config() -> bool:
                         "stt_vad_min_silence_duration_ms",
                         "stt_cpu_threads",
                         "stt_num_workers",
+                        "stt_quality_retry_beam_size",
+                        "stt_quality_retry_max_windows",
                     }:
                         try:
                             numeric_value_stt = int(value)
-                            minimum = 0 if selected_key == "stt_cpu_threads" else 1
+                            minimum = (
+                                0
+                                if selected_key
+                                in {"stt_cpu_threads", "stt_quality_retry_max_windows"}
+                                else 1
+                            )
                             if numeric_value_stt < minimum:
                                 raise ValueError()
                         except ValueError:
@@ -1012,7 +1026,11 @@ def _menu_config() -> bool:
                         data[selected_key] = numeric_value_stt
                         updated = True
                         continue
-                    if selected_key == "stt_temperature":
+                    if selected_key in {
+                        "stt_temperature",
+                        "stt_quality_retry_context_seconds",
+                        "stt_quality_retry_max_seconds",
+                    }:
                         try:
                             data[selected_key] = float(value)
                         except ValueError:

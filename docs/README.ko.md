@@ -17,7 +17,7 @@
 - 생성된 노트, 전사문, 녹음 파일 검색/열기
 - 데스크톱 GUI, CLI 명령, 대화형 TUI 지원
 
-노트는 항상 `structured-notes` 형식으로 생성된다. Ollama 사용 시에는 모델이 Markdown을 직접 쓰지 않고, 섹션별 JSON을 만든 뒤 앱이 최종 Markdown을 렌더링한다.
+노트는 항상 `structured-notes` 형식으로 생성되며, 최상위 제목은 전사문 중심 주제에 맞게 자동 생성된다. Ollama 사용 시에는 모델이 Markdown을 직접 쓰지 않고, 제목과 섹션별 JSON을 만든 뒤 앱이 최종 Markdown을 렌더링한다.
 
 ## How to Install
 
@@ -223,7 +223,7 @@ lecture-auto summarize --id <session_id>
 lecture-auto summarize --id <session_id> --preview
 ```
 
-전사문에서 구조화 강의 노트를 만든다. 템플릿 선택은 deprecated이며, 항상 `structured-notes` 형식을 사용한다.
+전사문에서 내용 기반 제목을 가진 구조화 강의 노트를 만든다. 템플릿 선택은 deprecated이며, 항상 `structured-notes` 형식을 사용한다.
 
 ### Library
 
@@ -243,13 +243,15 @@ STT:
 
 - `api`: Deepgram 또는 OpenAI-compatible provider
 - `local`: local Whisper/faster-whisper
-- local mode는 device/compute/batch/VAD/beam/hotwords를 CLI·TUI·GUI에서 설정
+- local mode는 device/compute/batch/VAD/beam/hotwords와 제한된 저신뢰 구간 재전사를 CLI·TUI·GUI에서 설정
 - raw Markdown 옆 `*-raw.stt.json`에 timestamp/confidence/runtime을 보존
+- 장수 worker가 같은 모델을 재사용하고 idle/unload/취소/비정상 종료 시 정리
+- edited transcript 옆 `*.audit.json`에 숫자·고유명사 변경과 diff를 보존
 
 ### 로컬 STT 하드웨어별 추천
 
-아래 값은 **추천값이며 자동 적용되지 않는다**. 현재 자동 선택 범위는
-device/compute capability와 batch OOM 축소까지다. 모델은 사용자가 선택한다.
+아래 값은 **추천값이며 자동 적용되지 않는다**. benchmark의 같은 이름 profile로
+재현할 수 있고, 앱에서는 각 값을 명시한다.
 
 | 하드웨어 | 모델 | device / compute | 용도 |
 | --- | --- | --- | --- |
@@ -260,8 +262,9 @@ device/compute capability와 batch OOM 축소까지다. 모델은 사용자가 �
 | NVIDIA VRAM 16GB 이상 | `large-v3` | `cuda / float16` | 정확도 우선 |
 | AMD/Intel GPU | `small` | `cpu / int8` | 현재 GPU backend 미지원 |
 
-Apple Silicon의 Metal/MLX, AMD/Intel의 Vulkan/OpenVINO 자동 backend는 아직
-구현되지 않았다. CUDA도 호환 cuBLAS/cuDNN이 설치되어야 한다.
+Apple Silicon의 Metal/Core ML/MLX와 AMD/Intel의 Vulkan/OpenVINO는 optional
+benchmark 후보다. 별도 native runtime·모델 cache·배포물이 필요해 기본 패키지에는
+포함하지 않는다. CUDA도 호환 cuBLAS/cuDNN이 설치되어야 한다.
 
 LLM:
 
@@ -298,6 +301,13 @@ STT_TEMPERATURE
 STT_VAD_FILTER
 STT_VAD_MIN_SILENCE_MS
 STT_CONDITION_ON_PREVIOUS_TEXT
+STT_QUALITY_RETRY
+STT_QUALITY_RETRY_MODEL
+STT_QUALITY_RETRY_BEAM_SIZE
+STT_QUALITY_RETRY_CONTEXT_SECONDS
+STT_QUALITY_RETRY_MAX_WINDOWS
+STT_QUALITY_RETRY_MAX_SECONDS
+LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS
 STT_WORD_TIMESTAMPS
 STT_HOTWORDS
 STT_CPU_THREADS

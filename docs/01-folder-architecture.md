@@ -49,6 +49,10 @@ src/lecture_auto/
 ├─ audio_preflight.py            # loudness/clipping/silence 기반 STT 입력 진단
 ├─ stt_config.py, stt_runtime.py # STT 설정과 provider 실행 경로
 ├─ stt_quality.py                # confidence/반복 기반 의심 구간 판정
+├─ stt_profiles.py               # 하드웨어 profile과 backend 평가 registry
+├─ stt_glossary.py               # 세션/자료 기반 제한된 STT 용어 추출
+├─ stt_audio_policy.py           # 조건부 오디오 후보·canonical cache 정책
+├─ stt_refinement.py             # refine evidence/chunk/audit 규칙
 ├─ deepgram_adapter.py           # Deepgram adapter
 ├─ whisper_adapter.py            # local Whisper/faster-whisper adapter
 ├─ llm_config.py, llm_adapter.py # LLM 설정, 전사 정제, 노트 생성
@@ -93,6 +97,7 @@ workspace/
 ├─ transcripts/[course/]session-id-raw.md
 ├─ transcripts/[course/]session-id-raw.stt.json
 ├─ transcripts/[course/]session-id-edited.md
+├─ transcripts/[course/]session-id-edited.audit.json
 ├─ materials/[course/]session-id.pdf
 └─ notes/[course/]session-id.md
 ```
@@ -101,5 +106,7 @@ workspace 파일은 사용자 데이터이므로 저장소에 커밋하지 않�
 
 `session-id-raw.stt.json`은 raw Markdown 형식을 바꾸지 않고 provider/runtime 설정,
 segment timestamp, confidence, 선택적 word timestamp를 보존하는 versioned sidecar다.
+`session-id-edited.audit.json`은 원문/수정문 checksum, 숫자와 영문 고유명사 변경,
+통합 diff를 보존하며 기존 transcript 파일 형식에는 영향을 주지 않는다.
 개발용 `scripts/benchmark_local_stt.py`는 저장소 밖 또는 ignore 대상 녹음 corpus를 읽고
 `build/stt-benchmarks/`에만 비교 결과를 만든다.

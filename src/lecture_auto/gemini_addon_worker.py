@@ -36,6 +36,7 @@ def dispatch(request: dict[str, Any]) -> dict[str, Any]:
         text = adapter.refine_transcript(
             str(request.get("raw_text") or ""),
             context_topic=request.get("context_topic"),
+            evidence=request.get("evidence"),
         )
     elif action == "gemini_generate_notes":
         text = adapter.generate_notes(

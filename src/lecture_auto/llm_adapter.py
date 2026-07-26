@@ -19,12 +19,19 @@ STRUCTURED_NOTE_SCHEMA_KEYS = (
 )
 
 STRUCTURED_NOTE_SCHEMA_DESCRIPTION = (
-    '{"topic_overview":["..."],'
+    '{"note_title":"...",'
+    '"topic_overview":["..."],'
     '"core_concepts":["..."],'
     '"detailed_explanations":[{"title":"...","bullets":["..."]}],'
     '"examples_mentioned":["..."],'
     '"questions_to_review":["..."],'
     '"exam_related_mentions":["..."]}'
+)
+
+STRUCTURED_NOTE_TITLE_INSTRUCTION = (
+    "Return one concise, content-specific title that identifies this lecture's central subject. "
+    "Use the requested output language, preserve essential proper nouns or technical terms, "
+    "and do not use generic titles such as 'Structured Lecture Notes' or 'Lecture Notes'."
 )
 
 STRUCTURED_NOTE_SECTION_INSTRUCTIONS = {
@@ -83,14 +90,23 @@ def _build_transcript_refinement_system_instruction(
         "Fix obvious transcription mistakes, spacing, punctuation, capitalization, sentence boundaries, and paragraph breaks. "
         "Remove meaningless filler, duplicated starts, and accidental repetitions only when they do not change the lecture content. "
         "Keep uncertainty, emphasis, questions, and instructor cues when they affect meaning. "
-        "Do not add new facts, explanations, headings, bullets, timestamps, speaker labels, or commentary. "
-        "If wording is ambiguous, keep the closest original wording instead of guessing. "
+        "Do not reconstruct omitted sentences or add facts, explanations, headings, bullets, numbers, formulas, named entities, "
+        "timestamps, speaker labels, or commentary that are absent from the ASR evidence. "
+        "Lecture materials and glossary terms may validate spelling only; their presence does not prove the words were spoken. "
+        "If ASR candidates conflict or confidence is low, preserve the span as '[불명확 mm:ss]' using its evidence timestamp. "
+        "If wording is ambiguous without a timestamp, keep the closest original wording instead of guessing. "
         f"{lang_prompt}"
         "Output only the refined transcript text."
     )
 
 
-def _build_transcript_refinement_prompt(chunk: str) -> str:
+def _build_transcript_refinement_prompt(
+    chunk: str,
+    *,
+    evidence: dict[str, object] | None = None,
+) -> str:
+    from lecture_auto.stt_refinement import format_refinement_evidence
+
     return (
         "Refine this transcript chunk according to the system instructions. "
         "Return only the refined transcript chunk.\n\n"
@@ -98,6 +114,7 @@ def _build_transcript_refinement_prompt(chunk: str) -> str:
         "<<<\n"
         f"{chunk}\n"
         ">>>"
+        f"{format_refinement_evidence(evidence)}"
     )
 
 
@@ -121,6 +138,7 @@ def _build_structured_notes_json_system_instruction(
         "Prefer dense study notes over broad summaries: capture definitions, mechanisms, assumptions, dependencies, "
         "formulas, code behavior, examples, caveats, contrasts, misconceptions, and instructor emphasis when present. "
         f"Schema exactly: {STRUCTURED_NOTE_SCHEMA_DESCRIPTION}. "
+        f"note_title: {STRUCTURED_NOTE_TITLE_INSTRUCTION} "
         f"Section requirements: {_format_structured_note_section_requirements()} "
         "topic_overview: lecture scope and main arc. "
         "core_concepts: key terms, definitions, relationships. "
@@ -200,14 +218,25 @@ def _build_structured_notes_merge_prompt(*, chunk_notes: list[dict[str, Any]]) -
     )
 
 
-def _build_structured_note_section_prompt(*, transcript: str, section_key: str) -> str:
+def _structured_note_section_schema(section_key: str) -> str:
     if section_key == "detailed_explanations":
-        schema = '{"detailed_explanations":[{"title":"...","bullets":["..."]}]}'
-    else:
-        schema = f'{{"{section_key}":["..."]}}'
+        return '{"detailed_explanations":[{"title":"...","bullets":["..."]}]}'
+    if section_key == "topic_overview":
+        return '{"note_title":"...","topic_overview":["..."]}'
+    return f'{{"{section_key}":["..."]}}'
+
+
+def _build_structured_note_section_prompt(*, transcript: str, section_key: str) -> str:
+    schema = _structured_note_section_schema(section_key)
+    title_instruction = (
+        f"Title instruction: {STRUCTURED_NOTE_TITLE_INSTRUCTION}\n"
+        if section_key == "topic_overview"
+        else ""
+    )
 
     return (
         f"Generate only this section: {section_key}.\n"
+        f"{title_instruction}"
         f"Instruction: {STRUCTURED_NOTE_SECTION_INSTRUCTIONS[section_key]}\n"
         f"Return JSON exactly matching this shape: {schema}\n\n"
         "Transcript:\n"
@@ -479,9 +508,38 @@ def _normalize_detailed_explanations(value: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _normalize_note_title(value: Any, topic_overview: list[str]) -> str:
+    if isinstance(value, list):
+        value = value[0] if value else None
+
+    title = _clean_note_item(value)
+    if title:
+        title = re.sub(r"\s+", " ", title).lstrip("#").strip()
+
+    generic_titles = {
+        "structured lecture notes",
+        "structured notes",
+        "lecture notes",
+        "강의 노트",
+        "구조화 강의 노트",
+    }
+    if not title or title.casefold() in generic_titles:
+        title = topic_overview[0] if topic_overview else "Lecture Notes"
+
+    if len(title) > 100:
+        shortened = title[:97].rsplit(" ", 1)[0].rstrip(".,;:")
+        title = f"{shortened or title[:97]}..."
+    return title
+
+
 def _normalize_structured_note_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    topic_overview = _normalize_note_list(raw_data.get("topic_overview"))
     return {
-        "topic_overview": _normalize_note_list(raw_data.get("topic_overview")),
+        "note_title": _normalize_note_title(
+            raw_data.get("note_title"),
+            topic_overview,
+        ),
+        "topic_overview": topic_overview,
         "core_concepts": _normalize_note_list(raw_data.get("core_concepts")),
         "detailed_explanations": _normalize_detailed_explanations(
             raw_data.get("detailed_explanations")
@@ -557,19 +615,23 @@ def _render_bullets(items: list[str]) -> str:
 
 
 def _render_structured_notes_markdown(note_data: dict[str, Any]) -> str:
+    note_title = _normalize_note_title(
+        note_data.get("note_title"),
+        _normalize_note_list(note_data.get("topic_overview")),
+    )
     detailed = note_data.get("detailed_explanations") or []
     if not detailed:
         detailed = [{"title": "Detailed Explanation", "bullets": ["Not mentioned."]}]
 
     detailed_lines = ["## Detailed Explanations"]
     for item in detailed:
-        title = _clean_note_item(item.get("title")) or "Detailed Explanation"
+        detail_title = _clean_note_item(item.get("title")) or "Detailed Explanation"
         bullets = _normalize_note_list(item.get("bullets"))
-        detailed_lines.extend(["", f"### {title}", _render_bullets(bullets)])
+        detailed_lines.extend(["", f"### {detail_title}", _render_bullets(bullets)])
 
     return "\n\n".join(
         [
-            "# Structured Lecture Notes",
+            f"# {note_title}",
             "## Topic Overview\n" + _render_bullets(note_data.get("topic_overview") or []),
             "## Core Concepts\n" + _render_bullets(note_data.get("core_concepts") or []),
             "\n".join(detailed_lines),
@@ -611,7 +673,12 @@ class LLMTransientNetworkError(Exception):
 class LLMProviderAdapter(Protocol):
     """Interface for LLM-based transcript refinement."""
 
-    def refine_transcript(self, raw_text: str, context_topic: str | None = None) -> str:
+    def refine_transcript(
+        self,
+        raw_text: str,
+        context_topic: str | None = None,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
         """Refines transcript by fixing typos, spacing, and wording, while preserving meaning."""
         ...
 
@@ -683,7 +750,12 @@ class GeminiLLMAdapter:
         """Normalizes common Gemini model aliases to API-accepted IDs."""
         return normalize_gemini_model_name(model_name)
 
-    def refine_transcript(self, raw_text: str, context_topic: str | None = None) -> str:
+    def refine_transcript(
+        self,
+        raw_text: str,
+        context_topic: str | None = None,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
         """Refines the transcript in chunks using the Gemini model."""
         if not raw_text or not raw_text.strip():
             return raw_text
@@ -692,6 +764,7 @@ class GeminiLLMAdapter:
                 "refine_transcript",
                 raw_text,
                 context_topic=context_topic,
+                evidence=evidence,
             )
 
         try:
@@ -714,21 +787,21 @@ class GeminiLLMAdapter:
         )
 
         chunk_size = self.config.resolve_chunk_size(len(raw_text))
+        from lecture_auto.stt_refinement import segment_chunks
+
+        chunks = segment_chunks(
+            raw_text,
+            chunk_size=chunk_size,
+            overlap_characters=0,
+        )
         refined_chunks = []
-        start_idx = 0
 
         try:
-            while start_idx < len(raw_text):
-                end_idx = min(start_idx + chunk_size, len(raw_text))
-                
-                if end_idx < len(raw_text):
-                    last_space = raw_text.rfind(' ', start_idx, end_idx)
-                    if last_space > start_idx + chunk_size // 2:
-                        end_idx = last_space
-                
-                chunk = raw_text[start_idx:end_idx]
-                
-                prompt = _build_transcript_refinement_prompt(chunk)
+            for chunk in chunks:
+                prompt = _build_transcript_refinement_prompt(
+                    chunk,
+                    evidence=evidence,
+                )
 
                 config_dict: dict = {"system_instruction": system_instructions}
                 _apply_thinking_config(
@@ -746,8 +819,6 @@ class GeminiLLMAdapter:
                 text = (getattr(response, "text", "") or "").strip()
                 refined_chunks.append(text)
                 
-                start_idx = end_idx + 1 if end_idx < len(raw_text) and raw_text[end_idx] == ' ' else end_idx
-
             return "\n".join(refined_chunks)
 
         except PermissionDenied as exc:
@@ -959,7 +1030,12 @@ class OllamaLLMAdapter:
                 "ollama package is not installed. Run: pip install ollama"
             ) from exc
 
-    def refine_transcript(self, raw_text: str, context_topic: str | None = None) -> str:
+    def refine_transcript(
+        self,
+        raw_text: str,
+        context_topic: str | None = None,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
         """Refines the transcript in chunks using the Ollama model."""
         if not raw_text or not raw_text.strip():
             return raw_text
@@ -970,21 +1046,21 @@ class OllamaLLMAdapter:
         )
 
         chunk_size = self.config.resolve_chunk_size(len(raw_text))
+        from lecture_auto.stt_refinement import segment_chunks
+
+        chunks = segment_chunks(
+            raw_text,
+            chunk_size=chunk_size,
+            overlap_characters=0,
+        )
         refined_chunks = []
-        start_idx = 0
 
         try:
-            while start_idx < len(raw_text):
-                end_idx = min(start_idx + chunk_size, len(raw_text))
-                
-                if end_idx < len(raw_text):
-                    last_space = raw_text.rfind(' ', start_idx, end_idx)
-                    if last_space > start_idx + chunk_size // 2:
-                        end_idx = last_space
-                
-                chunk = raw_text[start_idx:end_idx]
-                
-                prompt = _build_transcript_refinement_prompt(chunk)
+            for chunk in chunks:
+                prompt = _build_transcript_refinement_prompt(
+                    chunk,
+                    evidence=evidence,
+                )
 
                 try:
                     response = self.ollama.chat(
@@ -1010,8 +1086,6 @@ class OllamaLLMAdapter:
                         ) from exc
                     raise LLMTransientNetworkError(f"Ollama request failed: {exc}") from exc
                 
-                start_idx = end_idx + 1 if end_idx < len(raw_text) and raw_text[end_idx] == ' ' else end_idx
-
             return "\n".join(refined_chunks)
 
         except (LLMConfigError, LLMProviderAuthError, LLMTransientNetworkError):
@@ -1120,16 +1194,14 @@ class OllamaLLMAdapter:
                         transcript=transcript,
                         section_key=section_key,
                     )
-                    expected_schema = (
-                        '{"detailed_explanations":[{"title":"...","bullets":["..."]}]}'
-                        if section_key == "detailed_explanations"
-                        else f'{{"{section_key}":["..."]}}'
-                    )
+                    expected_schema = _structured_note_section_schema(section_key)
                     parsed = self._chat_for_structured_json(
                         system_instructions=system_instructions,
                         prompt=prompt,
                         expected_schema=expected_schema,
                     )
+                    if section_key == "topic_overview":
+                        raw_note_data["note_title"] = parsed.get("note_title")
                     raw_note_data[section_key] = _extract_section_value(parsed, section_key)
 
             note_data = _normalize_structured_note_data(raw_note_data)

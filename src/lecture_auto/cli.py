@@ -292,6 +292,12 @@ def config_set(
     stt_hotwords: str | None = typer.Option(None, "--stt-hotwords", help="Whitespace-separated local STT hotwords"),
     stt_cpu_threads: int | None = typer.Option(None, "--stt-cpu-threads", help="Local STT CPU thread count; 0 uses runtime default"),
     stt_num_workers: int | None = typer.Option(None, "--stt-num-workers", help="Local STT parallel worker count"),
+    stt_quality_retry: bool | None = typer.Option(None, "--stt-quality-retry/--no-stt-quality-retry", help="Re-transcribe bounded low-confidence windows"),
+    stt_quality_retry_model: str | None = typer.Option(None, "--stt-quality-retry-model", help="Optional stronger Whisper model for suspect windows"),
+    stt_quality_retry_beam_size: int | None = typer.Option(None, "--stt-quality-retry-beam-size", help="Beam size for selective retry"),
+    stt_quality_retry_context_seconds: float | None = typer.Option(None, "--stt-quality-retry-context-seconds", help="Context padding around suspect windows"),
+    stt_quality_retry_max_windows: int | None = typer.Option(None, "--stt-quality-retry-max-windows", help="Maximum selective retry windows"),
+    stt_quality_retry_max_seconds: float | None = typer.Option(None, "--stt-quality-retry-max-seconds", help="Maximum total audio seconds retried"),
     gemini_api_key: str | None = typer.Option(None, "--gemini-api-key", help="Google API key for hosted LLMs"),
     llm_model_name: str | None = typer.Option(None, "--llm-model", help="LLM model name (Gemini or Gemma 4 hosted model ID)"),
     llm_thinking_level: str | None = typer.Option(None, "--llm-thinking-level", help="LLM thinking level (minimal, low, medium, high)"),
@@ -397,6 +403,8 @@ def config_set(
         ("stt_vad_min_silence_duration_ms", stt_vad_min_silence_ms),
         ("stt_cpu_threads", stt_cpu_threads),
         ("stt_num_workers", stt_num_workers),
+        ("stt_quality_retry_beam_size", stt_quality_retry_beam_size),
+        ("stt_quality_retry_max_windows", stt_quality_retry_max_windows),
     )
     for key, value in numeric_stt_options:
         if value is not None:
@@ -409,10 +417,20 @@ def config_set(
         typer.echo(f"Global stt_temperature set to: {stt_temperature}")
         updated = stt_perf_updated = True
 
+    for key, value in (
+        ("stt_quality_retry_context_seconds", stt_quality_retry_context_seconds),
+        ("stt_quality_retry_max_seconds", stt_quality_retry_max_seconds),
+    ):
+        if value is not None:
+            config_data[key] = value
+            typer.echo(f"Global {key} set to: {value}")
+            updated = stt_perf_updated = True
+
     boolean_stt_options = (
         ("stt_vad_filter", stt_vad_filter),
         ("stt_condition_on_previous_text", stt_condition_on_previous_text),
         ("stt_word_timestamps", stt_word_timestamps),
+        ("stt_quality_retry_enabled", stt_quality_retry),
     )
     for key, value in boolean_stt_options:
         if value is not None:
@@ -423,6 +441,13 @@ def config_set(
     if stt_hotwords is not None:
         config_data["stt_hotwords"] = stt_hotwords.strip() or None
         typer.echo("Global STT hotwords updated.")
+        updated = stt_perf_updated = True
+
+    if stt_quality_retry_model is not None:
+        config_data["stt_quality_retry_model"] = (
+            stt_quality_retry_model.strip() or None
+        )
+        typer.echo("Global STT quality retry model updated.")
         updated = stt_perf_updated = True
 
     if stt_perf_updated:
@@ -449,6 +474,26 @@ def config_set(
             hotwords=str(config_data.get("stt_hotwords") or "") or None,
             cpu_threads=int(config_data.get("stt_cpu_threads") or 0),
             num_workers=int(config_data.get("stt_num_workers") or 1),
+            quality_retry_enabled=bool(
+                config_data.get("stt_quality_retry_enabled", True)
+            ),
+            quality_retry_model=(
+                str(config_data.get("stt_quality_retry_model"))
+                if config_data.get("stt_quality_retry_model")
+                else None
+            ),
+            quality_retry_beam_size=int(
+                config_data.get("stt_quality_retry_beam_size") or 5
+            ),
+            quality_retry_context_seconds=float(
+                config_data.get("stt_quality_retry_context_seconds", 1.5)
+            ),
+            quality_retry_max_windows=int(
+                config_data.get("stt_quality_retry_max_windows", 8)
+            ),
+            quality_retry_max_seconds=float(
+                config_data.get("stt_quality_retry_max_seconds", 120.0)
+            ),
         )
         try:
             candidate.validate()

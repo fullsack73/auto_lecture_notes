@@ -12,6 +12,8 @@ from lecture_auto.llm_adapter import (
     LLMConfigError,
     _apply_thinking_config,
     _extract_json_object,
+    _normalize_structured_note_data,
+    _render_structured_notes_markdown,
 )
 
 def test_llm_config_validation_fails_without_api_key() -> None:
@@ -124,6 +126,7 @@ def test_gemini_notes_use_chunk_merge_for_long_transcripts() -> None:
     mock_client_instance = MagicMock()
 
     payload = {
+        "note_title": "Graph Traversal: BFS, DFS, and Complexity",
         "topic_overview": [
             "Long lecture introduces graph search goals.",
             "The lecture moves from traversal mechanics to complexity.",
@@ -192,6 +195,7 @@ def test_gemini_notes_use_chunk_merge_for_long_transcripts() -> None:
     assert mock_client_instance.models.generate_content.call_count > 2
     assert any("Chunk: 1 of" in content for content in contents)
     assert "Merge these chunk-level lecture-note JSON objects" in contents[-1]
+    assert notes.startswith("# Graph Traversal: BFS, DFS, and Complexity")
     assert "### Breadth-First Search Mechanics" in notes
 
 
@@ -201,6 +205,20 @@ def test_extract_json_object_preserves_latex_commands_that_look_like_json_escape
     )
 
     assert parsed["items"][0] == r"$t \rightarrow \theta \beta \frac{1}{2} \nabla$"
+
+
+def test_structured_note_title_falls_back_to_topic_overview() -> None:
+    note_data = _normalize_structured_note_data(
+        {
+            "note_title": "Structured Lecture Notes",
+            "topic_overview": ["니체의 계보학적 도덕 비판"],
+        }
+    )
+
+    notes = _render_structured_notes_markdown(note_data)
+
+    assert notes.startswith("# 니체의 계보학적 도덕 비판")
+    assert "# Structured Lecture Notes" not in notes
 
 
 def test_model_name_normalization_maps_gemini_3_0_alias() -> None:

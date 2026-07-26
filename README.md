@@ -243,11 +243,13 @@ STT:
 
 - `api`: Deepgram or an OpenAI-compatible provider
 - `local`: local Whisper/faster-whisper
+- Local mode supports a warm isolated worker, bounded low-confidence retry,
+  session/material glossary hotwords, and confidence/audit sidecars.
 
 ### Local STT hardware recommendations
 
-These are **recommendations, not automatic model selection**. Automatic behavior
-currently covers device/compute capability and smaller-batch retry on OOM.
+These are **recommendations, not automatic model selection**. They correspond to
+the benchmark profiles in `scripts/benchmark_local_stt.py`.
 
 | Hardware | Model | device / compute | Use |
 | --- | --- | --- | --- |
@@ -258,8 +260,9 @@ currently covers device/compute capability and smaller-batch retry on OOM.
 | NVIDIA 16 GB+ VRAM | `large-v3` | `cuda / float16` | Accuracy first |
 | AMD/Intel GPU | `small` | `cpu / int8` | GPU backend not currently supported |
 
-Metal/MLX on Apple Silicon and Vulkan/OpenVINO on AMD/Intel are not implemented
-yet. CUDA requires compatible cuBLAS/cuDNN libraries.
+Metal/Core ML/MLX on Apple Silicon and Vulkan/OpenVINO on AMD/Intel are optional
+benchmark backends with separate native packaging and model caches. CUDA requires
+compatible cuBLAS/cuDNN libraries.
 
 LLM:
 

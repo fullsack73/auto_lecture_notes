@@ -53,13 +53,17 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 - Deepgram/OpenAI-compatible API STT
 - local Whisper/faster-whisper STT
 - local device/compute/batch/VAD/beam과 용어 hotword 설정
+- session/material glossary biasing과 제한된 저신뢰 구간 고품질 재전사
+- warm local worker, 하드웨어 profile, 조건부 오디오 후보 비교
 - raw transcript 생성
 - timestamp/confidence/runtime을 담은 raw STT sidecar 생성
 - LLM으로 오탈자/띄어쓰기/표현을 다듬되 의미와 용어를 보존하는 edited transcript 생성
+- refine evidence와 숫자·고유명사 변경 audit sidecar
 
 ### 노트와 library
 
 - transcript와 선택적 수업 자료 context를 바탕으로 구조화 강의 노트 생성
+- transcript의 중심 주제를 반영한 내용 기반 노트 제목 생성
 - `Topic Overview`, `Core Concepts`, `Detailed Explanations`, `Examples Mentioned`, `Questions to Review`, `Exam related mentions` 섹션 유지
 - 세션, 노트, 전사문, 녹음 파일 검색/목록/열기
 
@@ -69,6 +73,10 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 | --- | --- | --- |
 | STT | Deepgram, OpenAI-compatible | Whisper/faster-whisper |
 | LLM | Gemini/Gemma Google API | Ollama |
+
+로컬 STT 기본 provider는 faster-whisper다. whisper.cpp/MLX, SenseVoiceSmall,
+Qwen3-ASR-0.6B, Moonshine 한국어 모델은 backend·모델·라이선스·패키징이 분리된
+benchmark 후보이며 검증 없이 사용자 기본값으로 자동 선택하지 않는다.
 
 외부 API와 로컬 모델은 동일한 세션 workflow를 공유하되, 인증·설치·성능·비용 조건은 provider별로 다르다.
 

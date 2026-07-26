@@ -204,6 +204,42 @@ lecture-auto config set \
   --stt-language korean
 ```
 
+CPU balanced profile:
+
+```bash
+lecture-auto config set \
+  --stt-mode local \
+  --stt-local-model small \
+  --stt-device cpu \
+  --stt-compute-type int8 \
+  --stt-batch-size 4 \
+  --stt-beam-size 1 \
+  --stt-vad-filter \
+  --stt-vad-min-silence-ms 1000 \
+  --no-stt-condition-on-previous-text \
+  --stt-quality-retry \
+  --stt-quality-retry-model large-v3
+```
+
+Selective retry is bounded to 8 windows and 120 audio seconds by default.
+Session titles, courses, and imported PDF/PPTX terms are deduplicated and capped
+before being passed as hotwords. The material is never treated as evidence that
+content was spoken. Warm workers default to a 300-second idle timeout, configurable
+with `LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS`.
+
+For development benchmarks:
+
+```bash
+python scripts/benchmark_local_stt.py --list-profiles
+python scripts/benchmark_local_stt.py --list-backends
+python scripts/benchmark_local_stt.py \
+  --profile cpu-balanced --pair graphics --runs 2 --audio-preflight
+```
+
+Two or more runs report cold and warm timings from one worker/model lifecycle.
+`--refined-dir <dir>` evaluates `refined-<pair>.md` artifacts for accuracy and
+new number/named-term changes. Outputs remain under `build/stt-benchmarks/`.
+
 ## LLM Setup
 
 ### Google API

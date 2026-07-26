@@ -163,6 +163,35 @@ class ConfigRepository:
                 if "STT_NUM_WORKERS" in os.environ
                 else data.get("stt_num_workers")
             ) or 1,
+            quality_retry_enabled=self._env_bool(
+                "STT_QUALITY_RETRY",
+                data.get("stt_quality_retry_enabled", True),
+            ),
+            quality_retry_model=(
+                os.environ.get("STT_QUALITY_RETRY_MODEL")
+                or data.get("stt_quality_retry_model")
+                or None
+            ),
+            quality_retry_beam_size=self._optional_int(
+                os.environ["STT_QUALITY_RETRY_BEAM_SIZE"]
+                if "STT_QUALITY_RETRY_BEAM_SIZE" in os.environ
+                else data.get("stt_quality_retry_beam_size", 5)
+            ) or 5,
+            quality_retry_context_seconds=self._optional_float(
+                os.environ["STT_QUALITY_RETRY_CONTEXT_SECONDS"]
+                if "STT_QUALITY_RETRY_CONTEXT_SECONDS" in os.environ
+                else data.get("stt_quality_retry_context_seconds", 1.5)
+            ) or 0.0,
+            quality_retry_max_windows=self._optional_int(
+                os.environ["STT_QUALITY_RETRY_MAX_WINDOWS"]
+                if "STT_QUALITY_RETRY_MAX_WINDOWS" in os.environ
+                else data.get("stt_quality_retry_max_windows", 8)
+            ) or 0,
+            quality_retry_max_seconds=self._optional_float(
+                os.environ["STT_QUALITY_RETRY_MAX_SECONDS"]
+                if "STT_QUALITY_RETRY_MAX_SECONDS" in os.environ
+                else data.get("stt_quality_retry_max_seconds", 120.0)
+            ) or 0.0,
             use_dynaudnorm=self._env_bool("USE_DYNAUDNORM", data.get("use_dynaudnorm", False)),
             dynaudnorm_f=self._optional_int(data.get("dynaudnorm_f")),
             dynaudnorm_g=self._optional_int(data.get("dynaudnorm_g")),
@@ -227,6 +256,12 @@ class ConfigRepository:
             "stt_hotwords": config.stt.hotwords,
             "stt_cpu_threads": config.stt.cpu_threads,
             "stt_num_workers": config.stt.num_workers,
+            "stt_quality_retry_enabled": config.stt.quality_retry_enabled,
+            "stt_quality_retry_model": config.stt.quality_retry_model,
+            "stt_quality_retry_beam_size": config.stt.quality_retry_beam_size,
+            "stt_quality_retry_context_seconds": config.stt.quality_retry_context_seconds,
+            "stt_quality_retry_max_windows": config.stt.quality_retry_max_windows,
+            "stt_quality_retry_max_seconds": config.stt.quality_retry_max_seconds,
             "use_dynaudnorm": config.stt.use_dynaudnorm,
             "dynaudnorm_f": config.stt.dynaudnorm_f,
             "dynaudnorm_g": config.stt.dynaudnorm_g,

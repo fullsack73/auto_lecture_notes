@@ -55,6 +55,12 @@ class STTConfig:
     hotwords: str | None = None
     cpu_threads: int = 0
     num_workers: int = 1
+    quality_retry_enabled: bool = True
+    quality_retry_model: str | None = None
+    quality_retry_beam_size: int = 5
+    quality_retry_context_seconds: float = 1.5
+    quality_retry_max_windows: int = 8
+    quality_retry_max_seconds: float = 120.0
     use_dynaudnorm: bool = False
     dynaudnorm_f: int | None = None
     dynaudnorm_g: int | None = None
@@ -98,6 +104,20 @@ class STTConfig:
                 raise ValueError("STT cpu_threads must be between 0 and 256.")
             if self.num_workers < 1 or self.num_workers > 16:
                 raise ValueError("STT num_workers must be between 1 and 16.")
+            if self.quality_retry_beam_size < 1 or self.quality_retry_beam_size > 20:
+                raise ValueError("STT quality_retry_beam_size must be between 1 and 20.")
+            if not 0 <= self.quality_retry_context_seconds <= 10:
+                raise ValueError(
+                    "STT quality_retry_context_seconds must be between 0 and 10."
+                )
+            if not 0 <= self.quality_retry_max_windows <= 64:
+                raise ValueError(
+                    "STT quality_retry_max_windows must be between 0 and 64."
+                )
+            if not 0 <= self.quality_retry_max_seconds <= 3600:
+                raise ValueError(
+                    "STT quality_retry_max_seconds must be between 0 and 3600."
+                )
 
         if self.dynaudnorm_f is not None and (self.dynaudnorm_f < 10 or self.dynaudnorm_f > 8000):
             raise ValueError("dynaudnorm_f must be between 10 and 8000.")
