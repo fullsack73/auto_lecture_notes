@@ -185,3 +185,46 @@ def test_ollama_notes_harness_recovers_invalid_backslash_escapes() -> None:
 
     assert r"\alpha는 학습률을 나타낸다." in notes
     assert r"가중치 업데이트는 \alpha 값에 영향을 받는다." in notes
+
+
+def test_ollama_notes_harness_repairs_malformed_json_syntax() -> None:
+    adapter = _adapter()
+    core_concepts = _six_core_concepts("자료구조")
+    malformed_core_concepts = (
+        '{"core_concepts":['
+        f'{json.dumps(core_concepts[0], ensure_ascii=False)}\n'
+        f'{json.dumps(core_concepts[1], ensure_ascii=False)},'
+        + ",".join(
+            json.dumps(item, ensure_ascii=False) for item in core_concepts[2:]
+        )
+        + "]}"
+    )
+    adapter.ollama.chat.side_effect = [
+        _ollama_response({"topic_overview": ["자료구조의 목적과 선택 기준"]}),
+        _ollama_raw_response(malformed_core_concepts),
+        _ollama_response({"core_concepts": core_concepts}),
+        _ollama_response({"detailed_explanations": _detailed_sections()}),
+        _ollama_response({"examples_mentioned": ["버블 정렬", "병합 정렬"]}),
+        _ollama_response(
+            {
+                "questions_to_review": [
+                    "자료구조는 어떤 문제를 해결하는가?",
+                    "자료구조 선택에서 시간 복잡도는 왜 중요한가?",
+                    "배열과 연결 구조의 핵심 차이는 무엇인가?",
+                    "입력 특성에 따라 자료구조 선택은 어떻게 달라지는가?",
+                ]
+            }
+        ),
+        _ollama_response({"exam_related_mentions": ["Not mentioned."]}),
+    ]
+
+    notes = adapter.generate_notes("자료구조 강의", "# ignored template")
+
+    assert "## Core Concepts" in notes
+    assert core_concepts[0] in notes
+    assert adapter.ollama.chat.call_count == 7
+    syntax_repair_prompt = (
+        adapter.ollama.chat.call_args_list[2].kwargs["messages"][1]["content"]
+    )
+    assert "syntactically invalid" in syntax_repair_prompt
+    assert "Expecting ',' delimiter" in syntax_repair_prompt

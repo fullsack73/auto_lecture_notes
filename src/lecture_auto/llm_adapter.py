@@ -235,6 +235,22 @@ def _build_structured_notes_repair_prompt(
     )
 
 
+def _build_json_syntax_repair_prompt(
+    *,
+    invalid_json: str,
+    expected_schema: str,
+    parser_error: str,
+) -> str:
+    return (
+        "The previous response was intended to be JSON but is syntactically invalid. "
+        "Repair JSON syntax only, preserve all original content, and return valid JSON only. "
+        "Do not add markdown, code fences, or explanations.\n\n"
+        f"Required JSON shape: {expected_schema}\n"
+        f"Parser error: {parser_error}\n\n"
+        f"Invalid response as a JSON string:\n{json.dumps(invalid_json, ensure_ascii=False)}"
+    )
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     stripped = (text or "").strip()
     if not stripped:
@@ -1003,6 +1019,52 @@ class OllamaLLMAdapter:
         except Exception as exc:
             raise LLMTransientNetworkError(f"Ollama LLM request failed: {exc}") from exc
 
+    def _chat_for_structured_json(
+        self,
+        *,
+        system_instructions: str,
+        prompt: str,
+        expected_schema: str,
+    ) -> dict[str, Any]:
+        response = self.ollama.chat(
+            model=self.config.model_name,
+            messages=[
+                {"role": "system", "content": system_instructions},
+                {"role": "user", "content": prompt},
+            ],
+            format="json",
+        )
+        raw_text = response.get("message", {}).get("content", "").strip()
+
+        try:
+            return _extract_json_object(raw_text)
+        except (TypeError, ValueError) as parse_error:
+            repair_response = self.ollama.chat(
+                model=self.config.model_name,
+                messages=[
+                    {"role": "system", "content": system_instructions},
+                    {
+                        "role": "user",
+                        "content": _build_json_syntax_repair_prompt(
+                            invalid_json=raw_text,
+                            expected_schema=expected_schema,
+                            parser_error=str(parse_error),
+                        ),
+                    },
+                ],
+                format="json",
+            )
+            repaired_text = (
+                repair_response.get("message", {}).get("content", "").strip()
+            )
+            try:
+                return _extract_json_object(repaired_text)
+            except (TypeError, ValueError) as repair_error:
+                raise ValueError(
+                    "Ollama returned invalid JSON after one syntax repair attempt: "
+                    f"{repair_error}"
+                ) from repair_error
+
     def generate_notes(
         self,
         transcript: str,
@@ -1032,57 +1094,42 @@ class OllamaLLMAdapter:
 
             if len(chunks) > 1:
                 for index, chunk in enumerate(chunks, start=1):
-                    response = self.ollama.chat(
-                        model=self.config.model_name,
-                        messages=[
-                            {"role": "system", "content": system_instructions},
-                            {
-                                "role": "user",
-                                "content": _build_structured_notes_chunk_prompt(
-                                    transcript=chunk,
-                                    chunk_index=index,
-                                    chunk_count=len(chunks),
-                                ),
-                            },
-                        ],
-                        format="json",
+                    parsed_chunk = self._chat_for_structured_json(
+                        system_instructions=system_instructions,
+                        prompt=_build_structured_notes_chunk_prompt(
+                            transcript=chunk,
+                            chunk_index=index,
+                            chunk_count=len(chunks),
+                        ),
+                        expected_schema=STRUCTURED_NOTE_SCHEMA_DESCRIPTION,
                     )
-                    raw_text = response.get("message", {}).get("content", "").strip()
                     chunk_notes.append(
-                        _normalize_structured_note_data(_extract_json_object(raw_text))
+                        _normalize_structured_note_data(parsed_chunk)
                     )
 
-                merge_response = self.ollama.chat(
-                    model=self.config.model_name,
-                    messages=[
-                        {"role": "system", "content": system_instructions},
-                        {
-                            "role": "user",
-                            "content": _build_structured_notes_merge_prompt(
-                                chunk_notes=chunk_notes
-                            ),
-                        },
-                    ],
-                    format="json",
+                raw_note_data = self._chat_for_structured_json(
+                    system_instructions=system_instructions,
+                    prompt=_build_structured_notes_merge_prompt(
+                        chunk_notes=chunk_notes
+                    ),
+                    expected_schema=STRUCTURED_NOTE_SCHEMA_DESCRIPTION,
                 )
-                merge_text = merge_response.get("message", {}).get("content", "").strip()
-                raw_note_data = _extract_json_object(merge_text)
             else:
                 for section_key in STRUCTURED_NOTE_SCHEMA_KEYS:
                     prompt = _build_structured_note_section_prompt(
                         transcript=transcript,
                         section_key=section_key,
                     )
-                    response = self.ollama.chat(
-                        model=self.config.model_name,
-                        messages=[
-                            {"role": "system", "content": system_instructions},
-                            {"role": "user", "content": prompt}
-                        ],
-                        format="json",
+                    expected_schema = (
+                        '{"detailed_explanations":[{"title":"...","bullets":["..."]}]}'
+                        if section_key == "detailed_explanations"
+                        else f'{{"{section_key}":["..."]}}'
                     )
-                    raw_text = response.get("message", {}).get("content", "").strip()
-                    parsed = _extract_json_object(raw_text)
+                    parsed = self._chat_for_structured_json(
+                        system_instructions=system_instructions,
+                        prompt=prompt,
+                        expected_schema=expected_schema,
+                    )
                     raw_note_data[section_key] = _extract_section_value(parsed, section_key)
 
             note_data = _normalize_structured_note_data(raw_note_data)
@@ -1099,16 +1146,12 @@ class OllamaLLMAdapter:
                     previous_json=note_data,
                     issues=issues,
                 )
-                repair_response = self.ollama.chat(
-                    model=self.config.model_name,
-                    messages=[
-                        {"role": "system", "content": system_instructions},
-                        {"role": "user", "content": repair_prompt}
-                    ],
-                    format="json",
+                repaired_data = self._chat_for_structured_json(
+                    system_instructions=system_instructions,
+                    prompt=repair_prompt,
+                    expected_schema=STRUCTURED_NOTE_SCHEMA_DESCRIPTION,
                 )
-                repair_text = repair_response.get("message", {}).get("content", "").strip()
-                note_data = _normalize_structured_note_data(_extract_json_object(repair_text))
+                note_data = _normalize_structured_note_data(repaired_data)
 
             return _render_structured_notes_markdown(note_data)
 
