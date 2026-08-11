@@ -50,6 +50,8 @@ if [[ "$($PYTHON -c 'import platform; print(platform.machine())')" != "arm64" ]]
   exit 2
 fi
 
+APP_VERSION="$("$PYTHON" "$ROOT/scripts/project_version.py")"
+
 if [[ "${1:-}" == "--install" ]]; then
   "$PYTHON" "$INSTALLER" check "$INSTALL_APP"
 fi
@@ -76,7 +78,7 @@ rm -rf "$BUILD_DIR/app.build" "$BUILD_DIR/app.dist" "$BUILD_DIR/app.app" \
   --macos-target-arch=arm64 \
   --macos-app-name="Lecture Auto" \
   --macos-signed-app-name="com.anarchytoast.lectureauto" \
-  --macos-app-version=0.1.1 \
+  --macos-app-version="$APP_VERSION" \
   --macos-app-icon="$ICON_ICNS" \
   --macos-app-protected-resource="NSMicrophoneUsageDescription:Lecture Auto records lecture audio selected by the user." \
   --output-dir="$BUILD_DIR" \

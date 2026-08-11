@@ -35,6 +35,7 @@ scripts/
 scripts/*
 !scripts/prepare_ffmpeg_macos.sh
 !scripts/install_macos_app.py
+!scripts/project_version.py
 !scripts/build_linux_app.sh
 !scripts/build_windows_app.ps1
 !scripts/build_desktop_app.py

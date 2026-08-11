@@ -11,9 +11,10 @@ import time
 from pathlib import Path
 
 from prepare_ffmpeg_desktop import normalized_architecture, prepare
+from project_version import read_project_version
 
 
-APP_VERSION = "0.1.5"
+APP_VERSION = read_project_version()
 
 
 def native_platform() -> str:

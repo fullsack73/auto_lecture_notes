@@ -1,6 +1,10 @@
+#ifndef AppVersion
+  #error AppVersion must be provided by scripts/build_windows_app.ps1
+#endif
+
 [Setup]
 AppName=Lecture Auto
-AppVersion=0.1.5
+AppVersion={#AppVersion}
 DefaultDirName={autopf}\Lecture Auto
 DefaultGroupName=Lecture Auto
 OutputDir=..\dist-installer

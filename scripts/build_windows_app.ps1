@@ -17,6 +17,10 @@ $Python = if ($env:PYTHON) {
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     throw "Python environment not found: $Python"
 }
+$AppVersion = (& $Python (Join-Path $Root "scripts\project_version.py")).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $AppVersion) {
+    throw "Could not read the application version from pyproject.toml"
+}
 
 if (-not $InstallerOnly) {
     & $Python (Join-Path $Root "scripts\build_desktop_app.py") --platform windows
@@ -46,7 +50,7 @@ if ($Installer -or $InstallerOnly) {
     }
     Push-Location $Root
     try {
-        & $Compiler "deployment\windows.iss"
+        & $Compiler "/DAppVersion=$AppVersion" "deployment\windows.iss"
         if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup failed with exit code $LASTEXITCODE"
         }
