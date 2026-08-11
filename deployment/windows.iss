@@ -1,6 +1,6 @@
 [Setup]
 AppName=Lecture Auto
-AppVersion=0.1.4
+AppVersion=0.1.5
 DefaultDirName={autopf}\Lecture Auto
 DefaultGroupName=Lecture Auto
 OutputDir=..\dist-installer
