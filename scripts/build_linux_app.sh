@@ -50,15 +50,14 @@ if [[ "$APPIMAGE" != true ]]; then
   exit 0
 fi
 
+TOOL_RELEASE=1-alpha-20251107-1
 case "$ARCH" in
   x86_64|amd64)
-    TOOL_ASSET_ID=462806018
-    TOOL_SHA256=e87ee0815d109282fdda73e34c2361d64d02b0ffaea3674b18f1fd1f6a687dcf
+    TOOL_SHA256=c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
     APPIMAGE_ARCH=x86_64
     ;;
   aarch64|arm64)
-    TOOL_ASSET_ID=462805854
-    TOOL_SHA256=650ed1d045a09ab87855be1963f4f56ac7cf6defb6b2e2f4af0a3225f3d2d803
+    TOOL_SHA256=620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff
     APPIMAGE_ARCH=aarch64
     ;;
   *)
@@ -66,6 +65,7 @@ case "$ARCH" in
     exit 2
     ;;
 esac
+TOOL_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/$TOOL_RELEASE/linuxdeploy-$APPIMAGE_ARCH.AppImage"
 
 APPDIR="$ROOT/build/linux/LectureAuto.AppDir"
 TOOL="$ROOT/build/downloads/linuxdeploy-$APPIMAGE_ARCH.AppImage"
@@ -88,10 +88,8 @@ install -m 644 "$ICON_512" "$APPDIR/usr/share/icons/hicolor/512x512/apps/lecture
 if [[ ! -f "$TOOL" ]] || [[ "$(sha256sum "$TOOL" | awk '{print $1}')" != "$TOOL_SHA256" ]]; then
   rm -f "$TOOL"
   curl --fail --location \
-    --header 'Accept: application/octet-stream' \
-    --header 'X-GitHub-Api-Version: 2022-11-28' \
     --output "$TOOL" \
-    "https://api.github.com/repos/linuxdeploy/linuxdeploy/releases/assets/$TOOL_ASSET_ID"
+    "$TOOL_URL"
 fi
 if [[ "$(sha256sum "$TOOL" | awk '{print $1}')" != "$TOOL_SHA256" ]]; then
   printf 'linuxdeploy checksum validation failed: %s\n' "$TOOL" >&2
