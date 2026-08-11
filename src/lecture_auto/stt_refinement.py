@@ -55,9 +55,11 @@ def build_refinement_evidence(
         "quality": runtime.get("quality") if isinstance(runtime, dict) else None,
         "asr_passes": runtime.get("asr_passes") if isinstance(runtime, dict) else None,
         "rule": (
-            "Material/glossary terms validate spellings only. They are not evidence that "
-            "a fact was spoken. Preserve conflicts or low-confidence spans as "
-            "[불명확 mm:ss] instead of guessing."
+            "Use surrounding lecture context and alternative ASR candidates to correct "
+            "phonetically plausible recognition errors. Low confidence alone does not "
+            "make a span unclear. Material/glossary terms may validate a contextually "
+            "supported spelling but are not evidence that a fact was spoken. Use "
+            "[불명확 mm:ss] only when multiple plausible readings remain."
         ),
     }
 
@@ -66,7 +68,7 @@ def format_refinement_evidence(evidence: dict[str, object] | None) -> str:
     if not evidence:
         return ""
     return (
-        "\n\nASR evidence (use only to preserve uncertainty and validate edits):\n"
+        "\n\nASR evidence (use as supporting context for corrections and uncertainty):\n"
         + json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
     )
 

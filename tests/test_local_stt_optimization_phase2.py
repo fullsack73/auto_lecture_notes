@@ -32,7 +32,11 @@ from lecture_auto.stt_quality import (
     merge_retry_segments,
     should_recommend_full_retry,
 )
-from lecture_auto.stt_refinement import audit_refinement, segment_chunks
+from lecture_auto.stt_refinement import (
+    audit_refinement,
+    build_refinement_evidence,
+    segment_chunks,
+)
 from lecture_auto.stt_runtime import DiarizedSegment
 
 
@@ -147,6 +151,24 @@ def test_refinement_audit_detects_numbers_and_named_terms_and_chunks_safely() ->
     assert set(audit.changed_named_terms) == {"cuda", "opengl"}
     assert len(chunks) > 1
     assert all(len(chunk) <= 81 for chunk in chunks)
+
+
+def test_refinement_evidence_allows_contextual_asr_correction() -> None:
+    evidence = build_refinement_evidence(
+        {
+            "segments": [
+                {
+                    "start_time": 10,
+                    "end_time": 12,
+                    "text": "자섭의 섹이",
+                    "avg_logprob": -1.2,
+                }
+            ]
+        }
+    )
+
+    assert "Low confidence alone does not make a span unclear" in evidence["rule"]
+    assert "multiple plausible readings remain" in evidence["rule"]
 
 
 def test_persistent_worker_reuses_process_and_supports_unload(

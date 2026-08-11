@@ -117,6 +117,9 @@ def test_refine_transcript_uses_lecture_transcript_editor_prompt() -> None:
 
     assert "precise lecture transcript editor" in system_instruction
     assert "not a summary" in system_instruction
+    assert "phonetically plausible word substitutions" in system_instruction
+    assert "Low ASR confidence alone" in system_instruction
+    assert "Only when multiple plausible readings remain" in system_instruction
     assert "Algorithms" in system_instruction
     assert "Korean" in system_instruction
     assert "<<<\nraw transcript\n>>>" in contents

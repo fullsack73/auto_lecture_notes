@@ -109,10 +109,12 @@ DeepFilterNet은 지속 잡음이 확인된 경우에만 A/B 후보가 된다. r
 실제 발화의 증거로 취급하지 않는다.
 
 LLM refine는 raw sidecar의 timestamp, confidence, 1차/2차 ASR 정보를 선택적 evidence로
-받는다. 수행 범위는 문장부호·띄어쓰기·문장 경계·명백한 용어 오타·무의미 반복 정리로
-제한한다. 근거 없는 누락 문장·숫자·수식·고유명사를 생성하지 않고 충돌/저신뢰 구간은
-`[불명확 mm:ss]`로 보존한다. 문장 경계 chunking을 사용하며 결과 옆 audit JSON에
-checksum, 숫자/고유명사 변경과 unified diff를 기록한다.
+받는다. 문장부호·띄어쓰기·문장 경계·무의미 반복뿐 아니라 강의 주제와 인접 문장으로
+의도가 분명한 발음 유사 ASR 오인식과 깨진 표현도 교정한다. confidence가 낮다는 이유만으로
+오인식을 그대로 두지 않되, 근거 없는 누락 문장·사실·숫자·수식·고유명사는 생성하지 않는다.
+문맥과 ASR 후보를 사용한 뒤에도 여러 해석이 남을 때만 `[불명확 mm:ss]`로 보존한다.
+문장 경계 chunking을 사용하며 결과 옆 audit JSON에 checksum, 숫자/고유명사 변경과
+unified diff를 기록한다.
 
 benchmark 결과는 CER/WER, 용어 recall, 숫자·수식 recall, 누락률, 무음 hallucination,
 반복, RTF, cold/warm wall time, worker peak RAM과 가능한 경우 NVIDIA VRAM,
