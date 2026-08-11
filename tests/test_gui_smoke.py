@@ -9,7 +9,14 @@ from unittest.mock import call, patch
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QCloseEvent, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QStatusBar
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QFrame,
+    QLabel,
+    QPushButton,
+    QStatusBar,
+)
 
 from lecture_auto.application import AppConfig, ConfigRepository
 from lecture_auto.capture_runtime import AudioDevice
@@ -181,6 +188,11 @@ def test_library_folder_buttons_disable_without_sessions(tmp_path: Path, qtbot) 
     window.library_page.refresh()
 
     assert all(not button.isEnabled() for button in window.library_page.open_buttons)
+    assert window.library_page.open_folder_row.spacing() == 12
+    assert all(
+        button.objectName() == "LibraryFolderButton"
+        for button in window.library_page.open_buttons
+    )
 
 
 def test_session_table_headers_sort_and_preserve_selection(tmp_path: Path, qtbot) -> None:
@@ -340,6 +352,41 @@ def test_settings_value_controls_ignore_mouse_wheel(tmp_path: Path, qtbot) -> No
     assert page.stt_model.currentIndex() == 1
     assert page.dynaudnorm_f.value() == 150
     assert page.gain_db.value() == 3.0
+
+
+def test_settings_controls_use_polished_popup_spin_and_device_layout(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    page = window.settings_page
+
+    assert page.language.view().objectName() == "ComboPopup"
+    assert page.dynaudnorm_f.buttonSymbols() == QAbstractSpinBox.NoButtons
+    assert page.gain_db.buttonSymbols() == QAbstractSpinBox.NoButtons
+    assert page.device_row.stretch(0) == 1
+    assert page.device_refresh.objectName() == "DeviceRefresh"
+    assert page.device_refresh.maximumWidth() == 108
+    assert "QComboBoxPrivateContainer" in APP_STYLE
+
+
+def test_settings_changes_apply_automatically(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    page = window.settings_page
+    page._runtime_probe_requested = True
+    window.show_page(3)
+
+    page.audio_format.setCurrentIndex(page.audio_format.findData("mp3"))
+    qtbot.waitUntil(lambda: window.config.audio_format == "mp3", timeout=2000)
+
+    page.stt_language.setText("en")
+    page.stt_language.editingFinished.emit()
+    qtbot.waitUntil(lambda: window.config.stt.language == "en", timeout=2000)
+
+    persisted = window.repository.load(load_secrets=False)
+    assert persisted.audio_format == "mp3"
+    assert persisted.stt.language == "en"
+    assert page.auto_save_status.text() == "저장됨"
+    assert "설정 저장" not in {
+        button.text() for button in page.findChildren(QPushButton)
+    }
 
 
 def test_workspace_picker_applies_immediately_and_persists(tmp_path: Path, qtbot, monkeypatch) -> None:

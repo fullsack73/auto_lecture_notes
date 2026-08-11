@@ -74,6 +74,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 Open a new terminal, then build from the repository root:
 
+Quit Lecture Auto before updating an existing installation. To protect active recordings and background jobs, the installer refuses to terminate or replace a running app.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -82,7 +84,7 @@ python -m pip install -e '.[build]'
 scripts/build_macos_app.sh --install
 ```
 
-The installed app is available at `/Applications/Lecture Auto.app`:
+After the GUI smoke launch and signature verification pass, the app is available at `/Applications/Lecture Auto.app`. A copy or verification failure leaves the previous installation intact.
 
 ```bash
 open "/Applications/Lecture Auto.app"

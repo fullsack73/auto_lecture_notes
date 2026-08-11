@@ -11,6 +11,7 @@ from PySide6.QtCore import QDate, Qt, QTimer, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -158,13 +160,29 @@ QDoubleSpinBox:disabled, QPlainTextEdit:disabled {
     border-color: #dde3df;
 }
 QLabel:disabled { color: #9ba7a0; }
-QComboBox::drop-down { border: 0; width: 28px; }
-QComboBox QAbstractItemView {
+QComboBox::drop-down { border: 0; width: 32px; }
+QComboBoxPrivateContainer,
+QListView#ComboPopup {
     color: #18231e;
-    background: #ffffff;
-    border: 1px solid #b9c6be;
+    background: #f9fbf9;
+    border: 1px solid #aebdb4;
+    border-radius: 7px;
+    outline: 0;
+    padding: 4px;
+}
+QListView#ComboPopup::item {
+    min-height: 28px;
+    padding: 6px 10px;
+    color: #18231e;
+    background: #f9fbf9;
+    border-radius: 4px;
+}
+QListView#ComboPopup::item:hover { background: #edf4ef; }
+QListView#ComboPopup::item:selected {
     selection-background-color: #dceae2;
     selection-color: #143326;
+    background: #dceae2;
+    color: #143326;
 }
 QTableWidget, QListWidget, QTextBrowser {
     color: #1d2a23;
@@ -329,6 +347,15 @@ QLabel#SettingsActionTitle { color: #17251e; font-size: 15px; font-weight: 750; 
 QLabel#SettingsActionBody { color: #66746c; font-size: 11px; }
 QLabel#SettingsFieldLabel { color: #6a7870; font-size: 10px; font-weight: 700; }
 QLabel#SettingsPath { color: #506158; font-size: 10px; }
+QLabel#SettingsAutosave {
+    color: #35634f;
+    font-size: 11px;
+    font-weight: 650;
+    padding: 5px 9px;
+    background: #e5eee8;
+    border: 1px solid #c8d9cf;
+    border-radius: 6px;
+}
 QPushButton#SettingsAccent {
     color: #215d45;
     background: #dfece4;
@@ -358,6 +385,21 @@ QPushButton#SettingsDangerLink {
 QPushButton#SettingsDangerLink:hover {
     background: #f8e9e7;
     border-color: #cd928d;
+}
+QPushButton#DeviceRefresh {
+    min-width: 94px;
+    max-width: 108px;
+    padding-left: 12px;
+    padding-right: 12px;
+    color: #35634f;
+    background: #eef4f0;
+    border-color: #bdcdc3;
+}
+QPushButton#DeviceRefresh:hover { background: #e1ebe5; border-color: #9eb4a7; }
+QPushButton#LibraryFolderButton {
+    min-width: 118px;
+    padding-left: 18px;
+    padding-right: 18px;
 }
 QFrame#TaskTray QListWidget { background: #f8faf8; border-color: #d7dfda; }
 QToolTip { color: #ffffff; background: #17241e; border: 1px solid #3d5147; padding: 5px; }
@@ -953,9 +995,13 @@ class LibraryPage(QWidget):
         layout.addWidget(self.empty_state, 1)
         layout.addSpacing(10)
         open_row = QHBoxLayout()
+        open_row.setContentsMargins(1, 2, 1, 1)
+        open_row.setSpacing(12)
+        self.open_folder_row = open_row
         self.open_buttons: list[QPushButton] = []
         for label, kind in (("노트 폴더", "notes"), ("전사문 폴더", "transcripts"), ("녹음 폴더", "recordings")):
             action = QPushButton(label)
+            action.setObjectName("LibraryFolderButton")
             action.clicked.connect(lambda _checked=False, value=kind: self.open_selected(value))
             open_row.addWidget(action)
             self.open_buttons.append(action)
@@ -1003,6 +1049,11 @@ class SettingsPage(QWidget):
         self.setObjectName("Page")
         self.window = window
         self._runtime_probe_requested = False
+        self._loading = False
+        self._auto_save_timer = QTimer(self)
+        self._auto_save_timer.setSingleShot(True)
+        self._auto_save_timer.setInterval(350)
+        self._auto_save_timer.timeout.connect(self._apply_automatic_changes)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -1017,7 +1068,13 @@ class SettingsPage(QWidget):
         subtitle = QLabel("녹음 환경과 전사·노트 생성 방식을 설정합니다.")
         subtitle.setObjectName("Muted")
         outer.addWidget(subtitle)
-        outer.addSpacing(20)
+        outer.addSpacing(10)
+        self.auto_save_status = QLabel("변경사항은 자동으로 저장됩니다")
+        self.auto_save_status.setObjectName("SettingsAutosave")
+        self.auto_save_status.setAlignment(Qt.AlignCenter)
+        self.auto_save_status.setMaximumWidth(190)
+        outer.addWidget(self.auto_save_status, 0, Qt.AlignLeft)
+        outer.addSpacing(14)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
@@ -1041,10 +1098,14 @@ class SettingsPage(QWidget):
         self.capture_source.currentIndexChanged.connect(self.refresh_devices)
         self.devices = NoWheelComboBox()
         device_row = QHBoxLayout()
-        device_row.addWidget(self.devices)
-        device_refresh = QPushButton("장치 새로고침")
-        device_refresh.clicked.connect(self.refresh_devices)
-        device_row.addWidget(device_refresh)
+        device_row.setSpacing(10)
+        device_row.addWidget(self.devices, 1)
+        self.device_refresh = QPushButton("새로고침")
+        self.device_refresh.setObjectName("DeviceRefresh")
+        self.device_refresh.setMaximumWidth(108)
+        self.device_refresh.clicked.connect(self.refresh_devices)
+        device_row.addWidget(self.device_refresh)
+        self.device_row = device_row
         form.addRow("UI 언어", self.language)
         form.addRow("오디오 형식", self.audio_format)
         form.addRow("녹음 소스", self.capture_source)
@@ -1320,56 +1381,128 @@ class SettingsPage(QWidget):
         model_layout.addLayout(ollama_column, 1)
         form.addRow(model_panel)
 
-        save = QPushButton("설정 저장")
-        save.setObjectName("Primary")
-        save.clicked.connect(self.save)
-        form.addRow(save)
         scroll.setWidget(body)
         outer.addWidget(scroll)
+        self._connect_automatic_save()
+
+    def _connect_automatic_save(self) -> None:
+        combo_fields = (
+            self.language,
+            self.audio_format,
+            self.capture_source,
+            self.devices,
+            self.stt_mode,
+            self.stt_provider,
+            self.stt_model,
+            self.stt_device,
+            self.stt_compute_type,
+            self.llm_provider,
+            self.thinking,
+        )
+        check_fields = (
+            self.stt_vad_filter,
+            self.stt_condition_previous,
+            self.stt_word_timestamps,
+            self.stt_quality_retry,
+            self.dynaudnorm,
+        )
+        value_fields = (
+            self.stt_batch_size,
+            self.stt_beam_size,
+            self.stt_vad_min_silence,
+            self.stt_cpu_threads,
+            self.stt_num_workers,
+            self.stt_quality_retry_beam,
+            self.stt_quality_retry_context,
+            self.stt_quality_retry_windows,
+            self.stt_quality_retry_seconds,
+            self.dynaudnorm_f,
+            self.dynaudnorm_g,
+            self.gain_db,
+        )
+        text_fields = (
+            self.workspace,
+            self.stt_key,
+            self.stt_language,
+            self.stt_temperature,
+            self.stt_hotwords,
+            self.stt_quality_retry_model,
+            self.llm_key,
+            self.llm_model,
+            self.llm_language,
+            self.ollama_url,
+        )
+        for field in combo_fields:
+            field.currentIndexChanged.connect(self._queue_automatic_save)
+        for field in check_fields:
+            field.toggled.connect(self._queue_automatic_save)
+        for field in value_fields:
+            field.valueChanged.connect(self._queue_automatic_save)
+        for field in text_fields:
+            field.editingFinished.connect(self._queue_automatic_save)
+
+    def _queue_automatic_save(self, *_args: object) -> None:
+        if self._loading:
+            return
+        self.auto_save_status.setText("저장 대기 중…")
+        self._auto_save_timer.start()
+
+    def _apply_automatic_changes(self) -> None:
+        if self._loading:
+            return
+        self.auto_save_status.setText("저장 중…")
+        if self._save():
+            self.auto_save_status.setText("저장됨")
+        else:
+            self.auto_save_status.setText("저장 실패")
 
     def refresh(self) -> None:
-        cfg = self.window.config
-        self.workspace.setText(str(cfg.workspace))
-        set_combo(self.language, cfg.ui_language)
-        set_combo(self.audio_format, cfg.audio_format)
-        set_combo(self.capture_source, cfg.capture_source)
-        set_combo(self.stt_mode, cfg.stt.mode)
-        set_combo(self.stt_provider, cfg.stt.api_provider)
-        set_combo(self.stt_model, cfg.stt.local_model_name)
-        self.stt_language.setText(cfg.stt.language or "")
-        set_combo(self.stt_device, cfg.stt.local_device)
-        set_combo(self.stt_compute_type, cfg.stt.compute_type)
-        self.stt_batch_size.setValue(cfg.stt.batch_size)
-        self.stt_beam_size.setValue(cfg.stt.beam_size)
-        self.stt_temperature.setText(
-            "" if cfg.stt.temperature is None else str(cfg.stt.temperature)
-        )
-        self.stt_vad_filter.setChecked(cfg.stt.vad_filter)
-        self.stt_vad_min_silence.setValue(cfg.stt.vad_min_silence_duration_ms)
-        self.stt_condition_previous.setChecked(cfg.stt.condition_on_previous_text)
-        self.stt_word_timestamps.setChecked(cfg.stt.word_timestamps)
-        self.stt_hotwords.setText(cfg.stt.hotwords or "")
-        self.stt_cpu_threads.setValue(cfg.stt.cpu_threads)
-        self.stt_num_workers.setValue(cfg.stt.num_workers)
-        self.stt_quality_retry.setChecked(cfg.stt.quality_retry_enabled)
-        self.stt_quality_retry_model.setText(cfg.stt.quality_retry_model or "")
-        self.stt_quality_retry_beam.setValue(cfg.stt.quality_retry_beam_size)
-        self.stt_quality_retry_context.setValue(cfg.stt.quality_retry_context_seconds)
-        self.stt_quality_retry_windows.setValue(cfg.stt.quality_retry_max_windows)
-        self.stt_quality_retry_seconds.setValue(cfg.stt.quality_retry_max_seconds)
-        self.dynaudnorm.setChecked(cfg.stt.use_dynaudnorm)
-        self.dynaudnorm_f.setValue(cfg.stt.dynaudnorm_f or 150)
-        self.dynaudnorm_g.setValue(cfg.stt.dynaudnorm_g or 15)
-        self.gain_db.setValue(cfg.stt.gain_db or 0.0)
-        set_combo(self.llm_provider, cfg.llm.provider)
-        self.llm_model.setText(cfg.llm.model_name)
-        self.llm_language.setText(cfg.llm.language or "")
-        set_combo(self.thinking, cfg.llm.thinking_level)
-        self.ollama_url.setText(cfg.llm.ollama_base_url)
-        self.stt_key.clear(); self.stt_key.setPlaceholderText("저장됨" if cfg.stt.api_key else "")
-        self.llm_key.clear(); self.llm_key.setPlaceholderText("저장됨" if cfg.llm.api_key else "")
-        self._sync_provider_fields()
-        self.refresh_devices()
+        self._loading = True
+        try:
+            cfg = self.window.config
+            self.workspace.setText(str(cfg.workspace))
+            set_combo(self.language, cfg.ui_language)
+            set_combo(self.audio_format, cfg.audio_format)
+            set_combo(self.capture_source, cfg.capture_source)
+            set_combo(self.stt_mode, cfg.stt.mode)
+            set_combo(self.stt_provider, cfg.stt.api_provider)
+            set_combo(self.stt_model, cfg.stt.local_model_name)
+            self.stt_language.setText(cfg.stt.language or "")
+            set_combo(self.stt_device, cfg.stt.local_device)
+            set_combo(self.stt_compute_type, cfg.stt.compute_type)
+            self.stt_batch_size.setValue(cfg.stt.batch_size)
+            self.stt_beam_size.setValue(cfg.stt.beam_size)
+            self.stt_temperature.setText(
+                "" if cfg.stt.temperature is None else str(cfg.stt.temperature)
+            )
+            self.stt_vad_filter.setChecked(cfg.stt.vad_filter)
+            self.stt_vad_min_silence.setValue(cfg.stt.vad_min_silence_duration_ms)
+            self.stt_condition_previous.setChecked(cfg.stt.condition_on_previous_text)
+            self.stt_word_timestamps.setChecked(cfg.stt.word_timestamps)
+            self.stt_hotwords.setText(cfg.stt.hotwords or "")
+            self.stt_cpu_threads.setValue(cfg.stt.cpu_threads)
+            self.stt_num_workers.setValue(cfg.stt.num_workers)
+            self.stt_quality_retry.setChecked(cfg.stt.quality_retry_enabled)
+            self.stt_quality_retry_model.setText(cfg.stt.quality_retry_model or "")
+            self.stt_quality_retry_beam.setValue(cfg.stt.quality_retry_beam_size)
+            self.stt_quality_retry_context.setValue(cfg.stt.quality_retry_context_seconds)
+            self.stt_quality_retry_windows.setValue(cfg.stt.quality_retry_max_windows)
+            self.stt_quality_retry_seconds.setValue(cfg.stt.quality_retry_max_seconds)
+            self.dynaudnorm.setChecked(cfg.stt.use_dynaudnorm)
+            self.dynaudnorm_f.setValue(cfg.stt.dynaudnorm_f or 150)
+            self.dynaudnorm_g.setValue(cfg.stt.dynaudnorm_g or 15)
+            self.gain_db.setValue(cfg.stt.gain_db or 0.0)
+            set_combo(self.llm_provider, cfg.llm.provider)
+            self.llm_model.setText(cfg.llm.model_name)
+            self.llm_language.setText(cfg.llm.language or "")
+            set_combo(self.thinking, cfg.llm.thinking_level)
+            self.ollama_url.setText(cfg.llm.ollama_base_url)
+            self.stt_key.clear(); self.stt_key.setPlaceholderText("저장됨" if cfg.stt.api_key else "")
+            self.llm_key.clear(); self.llm_key.setPlaceholderText("저장됨" if cfg.llm.api_key else "")
+            self._sync_provider_fields()
+            self.refresh_devices()
+        finally:
+            self._loading = False
         if not self._runtime_probe_requested:
             self._runtime_probe_requested = True
             QTimer.singleShot(0, self.probe_runtime)
@@ -1484,7 +1617,7 @@ class SettingsPage(QWidget):
         if value:
             previous = self.workspace.text()
             self.workspace.setText(value)
-            if self._save(show_confirmation=False):
+            if self._save():
                 self.window.show_status_message(
                     f"워크스페이스를 변경했습니다: {self.window.config.workspace}",
                     7000,
@@ -1511,17 +1644,14 @@ class SettingsPage(QWidget):
         except Exception as exc:
             self.devices.addItem(f"장치 확인 실패: {exc}", None)
 
-    def save(self) -> None:
-        self._save(show_confirmation=True)
-
-    def _save(self, *, show_confirmation: bool) -> bool:
+    def _config_from_fields(self) -> AppConfig:
         old = self.window.config
         device: AudioDevice | None = self.devices.currentData()
         stt_mode = str(self.stt_mode.currentData())
         llm_provider = str(self.llm_provider.currentData())
         stt_api_key = self.stt_key.text().strip() or old.stt.api_key
         gemini_api_key = self.llm_key.text().strip() or old.llm.api_key
-        config = AppConfig(
+        return AppConfig(
             workspace=Path(self.workspace.text()),
             ui_language=str(self.language.currentData()),
             audio_format=str(self.audio_format.currentData()),
@@ -1571,12 +1701,16 @@ class SettingsPage(QWidget):
                 ollama_base_url=self.ollama_url.text().strip() or "http://localhost:11434",
             ),
         )
+
+    def _save(self) -> bool:
+        old = self.window.config
         try:
+            config = self._config_from_fields()
             config.workspace = ensure_workspace_structure(config.workspace)
+            if config == old:
+                return True
             self.window.repository.save(config)
             self.window.reload_services(config)
-            if show_confirmation:
-                QMessageBox.information(self, "설정", "설정을 저장했습니다.")
             return True
         except Exception as exc:
             self.window.show_error(exc)
@@ -1901,16 +2035,33 @@ class MainWindow(QMainWindow):
 
 
 class NoWheelComboBox(QComboBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        popup = QListView(self)
+        popup.setObjectName("ComboPopup")
+        popup.setFrameShape(QFrame.NoFrame)
+        popup.setSpacing(1)
+        popup.setUniformItemSizes(True)
+        self.setView(popup)
+
     def wheelEvent(self, event) -> None:
         event.ignore()
 
 
 class NoWheelSpinBox(QSpinBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+
     def wheelEvent(self, event) -> None:
         event.ignore()
 
 
 class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+
     def wheelEvent(self, event) -> None:
         event.ignore()
 

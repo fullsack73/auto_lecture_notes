@@ -72,6 +72,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 터미널을 다시 열고 프로젝트 루트에서 빌드한다.
 
+기존 설치본을 업데이트할 때는 먼저 Lecture Auto를 종료한다. 녹음 또는 백그라운드 작업을 보호하기 위해 실행 중인 앱은 설치 스크립트가 강제로 종료하거나 교체하지 않는다.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -80,7 +82,7 @@ python -m pip install -e '.[build]'
 scripts/build_macos_app.sh --install
 ```
 
-성공하면 `/Applications/Lecture Auto.app`에 설치된다.
+성공하면 실행 smoke test와 서명 검증을 통과한 앱이 `/Applications/Lecture Auto.app`에 설치된다. 복사나 검증이 실패하면 기존 설치본은 유지된다.
 
 ```bash
 open "/Applications/Lecture Auto.app"

@@ -19,6 +19,7 @@ ICON_PNG="$ROOT/src/lecture_auto/gui/assets/app-icon.png"
 ICON_ICNS="$ROOT/src/lecture_auto/gui/assets/LectureAuto.icns"
 APP="$BUILD_DIR/LectureAuto.app"
 INSTALL_APP="/Applications/Lecture Auto.app"
+INSTALLER="$ROOT/scripts/install_macos_app.py"
 
 if [[ "$(uname -m)" != "arm64" ]]; then
   print -u2 "This build script requires a native arm64 shell."
@@ -47,6 +48,10 @@ fi
 if [[ "$($PYTHON -c 'import platform; print(platform.machine())')" != "arm64" ]]; then
   print -u2 "Python is not arm64: $PYTHON"
   exit 2
+fi
+
+if [[ "${1:-}" == "--install" ]]; then
+  "$PYTHON" "$INSTALLER" check "$INSTALL_APP"
 fi
 
 "$ROOT/scripts/prepare_ffmpeg_macos.sh"
@@ -113,7 +118,8 @@ chmod +x "$APP/Contents/MacOS/bin/ffmpeg" "$APP/Contents/MacOS/bin/ffprobe"
   --app "$APP" \
   --report "$BUILD_DIR/nuitka-report.xml" \
   --platform macos \
-  --architecture arm64
+  --architecture arm64 \
+  --smoke-test
 
 codesign --force --deep --sign - --identifier "com.anarchytoast.lectureauto" "$APP"
 
@@ -124,11 +130,7 @@ printf '{"started_at":%s,"finished_at":%s,"duration_seconds":%s,"app_size_kb":%s
   > "$BUILD_DIR/build-metadata.json"
 
 if [[ "${1:-}" == "--install" ]]; then
-  if [[ -e "$INSTALL_APP" ]]; then
-    rm -rf "$INSTALL_APP"
-  fi
-  ditto "$APP" "$INSTALL_APP"
-  xattr -dr com.apple.quarantine "$INSTALL_APP" 2>/dev/null || true
+  "$PYTHON" "$INSTALLER" install "$APP" "$INSTALL_APP"
   print "Installed: $INSTALL_APP"
 else
   print "Built: $APP"

@@ -15,6 +15,7 @@
 - **macOS 미디어 도구**: 배포 앱은 ARM64 FFmpeg/FFprobe를 `Contents/MacOS/bin`에 포함한다. 빌드 스크립트는 고정된 소스와 checksum으로 GPL/nonfree 기능을 끈 바이너리를 준비하고 AVFoundation, MP3, 외부 Homebrew dylib 비의존성을 검증한다.
 - **Windows/Linux 미디어 도구**: 월말 보존되는 고정 BtbN LGPL 빌드와 SHA-256을 사용한다. Windows는 DirectShow, Linux는 PulseAudio 또는 ALSA 입력과 MP3 지원을 검증하며 FFmpeg 라이선스와 소스 정보를 앱에 포함한다.
 - **데스크톱 패키징**: 모든 플랫폼은 Nuitka standalone 빌드에서 구조화 노트 템플릿, add-on worker, `uv`, FFmpeg/FFprobe를 같은 상대 경로로 포함한다. Windows는 Inno Setup installer를, Linux는 tar.gz와 선택적 AppImage를 생성한다.
+- **macOS 재설치**: 실행 중인 설치본은 녹음과 백그라운드 작업 보호를 위해 빌드 전에 감지하고 교체하지 않는다. 닫힌 기존 앱은 새 번들을 임시 경로에 복사하고 서명 및 GUI smoke launch를 검증한 뒤 교체한다. 복사나 검증에 실패하면 기존 설치본을 보존한다.
 - **데스크톱 제공 방식**: 버전 태그는 Windows x86_64 installer, Linux x86_64 AppImage/portable archive와 SHA-256 목록을 GitHub Release에 게시한다. macOS 로컬 앱은 ad-hoc 서명이고 Windows/Linux 배포본도 코드 서명되지 않는다.
 
 ## B. 계층별 구현 규칙
@@ -22,6 +23,8 @@
 ### Entry points
 
 `cli.py`, `tui.py`, `gui/`는 사용자 입력을 검증하고 서비스 메서드를 호출한 뒤 결과를 표현한다. 세션 상태 전이, 파일 경로 계산, provider 선택 같은 업무 규칙을 새로 복제하지 않는다.
+
+GUI 설정 화면은 콤보·체크·숫자 변경을 짧게 debounce한 뒤 자동 저장하고 서비스를 갱신한다. 텍스트 설정은 편집 완료 시 자동 적용한다. 화면을 초기값으로 채우는 동안 발생한 signal은 저장을 유발하지 않으며, 별도의 하단 저장 버튼을 요구하지 않는다.
 
 ### Application and services
 
