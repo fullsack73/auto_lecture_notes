@@ -67,6 +67,24 @@ def test_main_window_navigates_and_shows_created_session(tmp_path: Path, qtbot) 
     assert window.sessions_page.detail_title.text() == "Intro"
 
 
+def test_session_transcript_preview_prefers_refined_version(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    window.container.session.session_create("week-01", "2026-07-12", "Intro", "CS101")
+    session = window.container.session.store.get_by_session_id("week-01")
+    assert session is not None
+    session["transcript_file_path"] = "transcripts/CS101/week-01-raw.md"
+    window.container.session.store.upsert(session)
+
+    transcripts = window.config.workspace / "transcripts" / "CS101"
+    transcripts.mkdir(parents=True)
+    (transcripts / "week-01-raw.md").write_text("raw version", encoding="utf-8")
+    (transcripts / "week-01-edited.md").write_text("refined version", encoding="utf-8")
+
+    window.sessions_page.select_session("week-01")
+
+    assert window.sessions_page.transcript_view.toPlainText() == "refined version"
+
+
 def test_command_feedback_does_not_create_bottom_status_bar(tmp_path: Path, qtbot) -> None:
     window = make_window(tmp_path, qtbot)
 

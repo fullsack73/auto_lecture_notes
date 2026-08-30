@@ -1448,6 +1448,14 @@ class SessionService:
             message=f"Transcript for '{session_id}' reviewed (no changes)."
         )
 
+    def preferred_transcript_path(self, session_id: str) -> Path | None:
+        session = self.store.get_by_session_id(session_id)
+        if not session or not session.get("transcript_file_path"):
+            return None
+
+        raw_path, edited_path = self._resolve_transcript_paths(session)
+        return edited_path if edited_path.exists() else raw_path
+
     def transcript_refine(
         self,
         session_reference: str,

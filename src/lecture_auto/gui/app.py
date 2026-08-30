@@ -845,7 +845,10 @@ class SessionsPage(QWidget):
             f"{session['date']} · {session.get('course') or '과목 없음'} · {format_status(session.get('status'))}"
         )
         self.raw_view.setPlainText(json.dumps(session, ensure_ascii=False, indent=2))
-        self._load_artifact(self.transcript_view, session.get("transcript_file_path"))
+        self._load_artifact_path(
+            self.transcript_view,
+            self.window.container.session.preferred_transcript_path(session_id),
+        )
         note_rel = self.window.container.session.store.build_note_path(session_id, course=session.get("course"))
         self._load_artifact(self.note_view, note_rel)
 
@@ -853,7 +856,12 @@ class SessionsPage(QWidget):
         if not relative:
             view.setPlainText("아직 생성되지 않음")
             return
-        path = self.window.config.workspace / relative
+        self._load_artifact_path(view, self.window.config.workspace / relative)
+
+    def _load_artifact_path(self, view: QTextBrowser, path: Path | None) -> None:
+        if path is None:
+            view.setPlainText("아직 생성되지 않음")
+            return
         if path.exists():
             view.setMarkdown(path.read_text(encoding="utf-8"))
         else:
