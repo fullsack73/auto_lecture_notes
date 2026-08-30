@@ -53,7 +53,7 @@ API keys and the workspace are configured inside the app after installation. Win
 GitHub Releases currently provide Windows and Linux installers. macOS users build the app on a Mac that meets these requirements:
 
 - Apple silicon (`uname -m` prints `arm64`)
-- An ARM64 Python 3.11 or newer
+- ARM64 Python 3.11 exactly (not 3.12 or newer)
 - Xcode Command Line Tools
 - The Rust toolchain
 - Enough free disk space for build files and network access to download FFmpeg sources
@@ -77,7 +77,7 @@ Open a new terminal, then build from the repository root:
 Quit Lecture Auto before updating an existing installation. To protect active recordings and background jobs, the installer refuses to terminate or replace a running app.
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[build]'
@@ -85,6 +85,8 @@ scripts/build_macos_app.sh --install
 ```
 
 After the GUI smoke launch and signature verification pass, the app is available at `/Applications/Lecture Auto.app`. A copy or verification failure leaves the previous installation intact.
+
+The macOS package is validated only with Python 3.11. If the script detects another Python version, it exits before touching build artifacts or the installed app. Install Python 3.11 first if `python3.11` is unavailable.
 
 ```bash
 open "/Applications/Lecture Auto.app"

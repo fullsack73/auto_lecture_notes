@@ -51,7 +51,7 @@ PYTHONPATH=src python -m lecture_auto.cli --help
 GitHub Release에서는 Windows와 Linux 설치 파일을 제공한다. macOS는 다음 조건을 만족하는 Mac에서 사용자가 직접 빌드한다.
 
 - Apple Silicon Mac (`uname -m` 결과가 `arm64`)
-- Python 3.11 이상 ARM64 환경
+- ARM64 Python 3.11 환경(3.12 이상이 아닌 정확히 3.11)
 - Xcode Command Line Tools
 - Rust toolchain
 - 빌드 파일을 위한 여유 디스크 공간과 FFmpeg 소스 다운로드용 네트워크
@@ -75,7 +75,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 기존 설치본을 업데이트할 때는 먼저 Lecture Auto를 종료한다. 녹음 또는 백그라운드 작업을 보호하기 위해 실행 중인 앱은 설치 스크립트가 강제로 종료하거나 교체하지 않는다.
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[build]'
@@ -83,6 +83,8 @@ scripts/build_macos_app.sh --install
 ```
 
 성공하면 실행 smoke test와 서명 검증을 통과한 앱이 `/Applications/Lecture Auto.app`에 설치된다. 복사나 검증이 실패하면 기존 설치본은 유지된다.
+
+macOS 패키지는 Python 3.11에서만 검증된다. 스크립트가 다른 Python을 감지하면 빌드 파일이나 기존 설치본을 건드리기 전에 종료한다. `python3.11` 명령이 없다면 Python 3.11을 먼저 설치한다.
 
 ```bash
 open "/Applications/Lecture Auto.app"

@@ -95,6 +95,7 @@ def verify_smoke_launch(executable: Path, platform_name: str) -> None:
             {
                 "LECTURE_AUTO_SMOKE_TEST": "1",
                 "LECTURE_AUTO_WORKSPACE": str(Path(temp) / "workspace"),
+                "LLM_PROVIDER": "ollama",
                 "HOME": temp,
                 "USERPROFILE": temp,
             }
@@ -151,12 +152,23 @@ def verify(
             bad_files.append(str(path.relative_to(app)))
 
     included_modules = []
+    report_python_version = None
     if report.is_file():
         root = ET.parse(report).getroot()
+        python_info = root.find("python")
+        if python_info is not None:
+            report_python_version = python_info.attrib.get("python_version")
         for element in root.iter("module"):
             name = element.attrib.get("name", "")
             if banned_name(name):
                 included_modules.append(name)
+
+    if selected_platform == "macos" and report_python_version:
+        if ".".join(report_python_version.split(".")[:2]) != "3.11":
+            raise RuntimeError(
+                "macOS app must be built with Python 3.11; "
+                f"Nuitka report uses {report_python_version}"
+            )
 
     if bad_files or included_modules:
         raise RuntimeError(
@@ -234,6 +246,7 @@ def verify(
         "platform": selected_platform,
         "size_bytes": size_bytes,
         "architecture": actual_architecture,
+        "python_version": report_python_version,
         "banned_files": bad_files,
         "banned_modules": included_modules,
         "bundled_media_tools": media_tools,

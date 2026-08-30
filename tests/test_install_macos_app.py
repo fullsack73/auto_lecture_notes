@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,6 +75,26 @@ def test_install_keeps_closed_app_when_staging_fails(tmp_path: Path, monkeypatch
 
     assert (target / "Contents" / "MacOS" / "LectureAuto").read_text() == "old"
     assert not list(tmp_path.glob(".installed-install-*"))
+
+
+def test_candidate_smoke_test_forces_ollama_import(tmp_path: Path, monkeypatch) -> None:
+    app = make_app(tmp_path / "candidate.app", "new")
+    observed = {}
+
+    def run(command, **kwargs):
+        observed["command"] = command
+        observed["env"] = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(MODULE.subprocess, "run", run)
+
+    MODULE._smoke_test(app)
+
+    assert observed["command"] == [
+        str(app / "Contents" / "MacOS" / "LectureAuto")
+    ]
+    assert observed["env"]["LLM_PROVIDER"] == "ollama"
+    assert observed["env"]["LECTURE_AUTO_SMOKE_TEST"] == "1"
 
 
 def test_install_restores_previous_app_when_swap_fails(tmp_path: Path, monkeypatch) -> None:

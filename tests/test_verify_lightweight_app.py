@@ -12,6 +12,7 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 verify = MODULE.verify
 binary_architecture = MODULE.binary_architecture
+verify_smoke_launch = MODULE.verify_smoke_launch
 
 
 def test_verify_rejects_note_template_outside_runtime_package_path(tmp_path: Path) -> None:
@@ -47,3 +48,21 @@ def test_binary_architecture_reads_linux_elf_machine(tmp_path: Path) -> None:
     executable.write_bytes(payload)
 
     assert binary_architecture(executable, "linux") == "arm64"
+
+
+def test_smoke_launch_forces_ollama_import(tmp_path: Path, monkeypatch) -> None:
+    executable = tmp_path / "LectureAuto"
+    executable.write_text("placeholder", encoding="utf-8")
+    observed = {}
+
+    def run(command, **kwargs):
+        observed["command"] = command
+        observed["env"] = kwargs["env"]
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(MODULE.subprocess, "run", run)
+
+    verify_smoke_launch(executable, "macos")
+
+    assert observed["command"] == [str(executable)]
+    assert observed["env"]["LLM_PROVIDER"] == "ollama"

@@ -44,7 +44,7 @@ cd lecture-auto
 
 ### 1. Build and run the desktop app locally
 
-Install Python 3.11+ and the Rust toolchain before building. Desktop builds are native rather than cross-compiled, so use the commands for the operating system where the app will run.
+Install the documented Python version and the Rust toolchain before building. Desktop builds are native rather than cross-compiled, so use the commands for the operating system where the app will run.
 
 #### macOS (Apple silicon)
 
@@ -52,7 +52,7 @@ Install Xcode Command Line Tools first. Then build and install the app:
 
 ```bash
 xcode-select --install  # Skip if Command Line Tools are already installed.
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[build]'

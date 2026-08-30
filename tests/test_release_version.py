@@ -10,6 +10,9 @@ def test_release_builders_use_pyproject_version() -> None:
     assert '--macos-app-version="$APP_VERSION"' in (
         root / "scripts" / "build_macos_app.sh"
     ).read_text()
+    assert "sys.version_info[:2] == (3, 11)" in (
+        root / "scripts" / "build_macos_app.sh"
+    ).read_text()
     assert '"/DAppVersion=$AppVersion"' in (
         root / "scripts" / "build_windows_app.ps1"
     ).read_text()

@@ -50,6 +50,12 @@ if [[ "$($PYTHON -c 'import platform; print(platform.machine())')" != "arm64" ]]
   exit 2
 fi
 
+if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)'; then
+  print -u2 "macOS app builds require Python 3.11 exactly: $PYTHON ($($PYTHON --version 2>&1))"
+  print -u2 "Create a Python 3.11 environment or set PYTHON to its interpreter."
+  exit 2
+fi
+
 APP_VERSION="$("$PYTHON" "$ROOT/scripts/project_version.py")"
 
 if [[ "${1:-}" == "--install" ]]; then

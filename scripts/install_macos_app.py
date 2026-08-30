@@ -53,6 +53,39 @@ def _copy_and_verify(source: Path, candidate: Path) -> None:
         ["codesign", "--verify", "--deep", "--strict", str(candidate)],
         check=True,
     )
+    _smoke_test(candidate)
+
+
+def _smoke_test(app: Path) -> None:
+    executable = app / "Contents" / "MacOS" / "LectureAuto"
+    with tempfile.TemporaryDirectory(prefix="lecture-auto-install-smoke-") as temp:
+        env = dict(os.environ)
+        env.update(
+            {
+                "LECTURE_AUTO_SMOKE_TEST": "1",
+                "LECTURE_AUTO_WORKSPACE": str(Path(temp) / "workspace"),
+                "LLM_PROVIDER": "ollama",
+                "HOME": temp,
+            }
+        )
+        try:
+            result = subprocess.run(
+                [str(executable)],
+                check=False,
+                env=env,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Candidate app smoke test timed out") from exc
+        if result.returncode:
+            output = (result.stdout + "\n" + result.stderr).strip()
+            raise RuntimeError(
+                f"Candidate app smoke test failed with exit code {result.returncode}: "
+                f"{output[-4000:]}"
+            )
 
 
 def install(source: Path, target: Path) -> None:
