@@ -5,6 +5,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,6 +85,9 @@ class CaptureRuntimeAdapter(Protocol):
     ) -> None:
         ...
 
+    def capture_level(self, session_id: str) -> float | None:
+        ...
+
 
 class NoopCaptureRuntimeAdapter:
     """Deterministic runtime adapter used by default for non-device environments."""
@@ -121,6 +125,9 @@ class NoopCaptureRuntimeAdapter:
 
         self._active.pop(session_id)
 
+    def capture_level(self, session_id: str) -> float | None:
+        return None
+
 
 class FFmpegCaptureRuntimeAdapter:
     """Real runtime adapter that starts/stops FFmpeg-based audio capture."""
@@ -141,6 +148,8 @@ class FFmpegCaptureRuntimeAdapter:
         self.platform = platform or sys.platform
         self.backend = backend or self._default_backend()
         self._processes: dict[str, subprocess.Popen[bytes]] = {}
+        self._capture_levels: dict[str, float] = {}
+        self._meter_threads: dict[str, threading.Thread] = {}
 
     @staticmethod
     def _resolve_ffmpeg_bin() -> str:
@@ -288,7 +297,40 @@ class FFmpegCaptureRuntimeAdapter:
             input_args = ["-f", "alsa", "-i", device_id]
         else:
             input_args = ["-f", "pulse", "-i", device_id]
-        return [self.ffmpeg_bin, "-y", *input_args, output_path]
+        return [
+            self.ffmpeg_bin,
+            "-y",
+            "-nostats",
+            *input_args,
+            "-af",
+            "astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level",
+            output_path,
+        ]
+
+    @staticmethod
+    def _parse_peak_level(line: bytes | str) -> float | None:
+        text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else line
+        match = re.search(r"lavfi\.astats\.Overall\.Peak_level=(-inf|-?\d+(?:\.\d+)?)", text)
+        if not match:
+            return None
+        return -60.0 if match.group(1) == "-inf" else float(match.group(1))
+
+    def _read_capture_levels(self, session_id: str, process: subprocess.Popen[bytes]) -> None:
+        if process.stderr is None:
+            return
+        for line in process.stderr:
+            level = self._parse_peak_level(line)
+            if level is not None:
+                self._capture_levels[session_id] = level
+
+    def capture_level(self, session_id: str) -> float | None:
+        return self._capture_levels.get(session_id)
+
+    def _clear_capture_meter(self, session_id: str) -> None:
+        self._capture_levels.pop(session_id, None)
+        thread = self._meter_threads.pop(session_id, None)
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=0.2)
 
     def start_capture(self, session_id: str, output_path: str) -> CaptureHandle:
         if session_id in self._processes:
@@ -305,7 +347,7 @@ class FFmpegCaptureRuntimeAdapter:
                 command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
         except PermissionError as exc:
             raise CapturePermissionError("OS permissions denied capture startup") from exc
@@ -313,6 +355,13 @@ class FFmpegCaptureRuntimeAdapter:
             raise CaptureDeviceError("Unable to open system audio device") from exc
 
         self._processes[session_id] = process
+        meter_thread = threading.Thread(
+            target=self._read_capture_levels,
+            args=(session_id, process),
+            daemon=True,
+        )
+        self._meter_threads[session_id] = meter_thread
+        meter_thread.start()
         return CaptureHandle(
             session_id=session_id,
             output_path=output_path,
@@ -340,15 +389,21 @@ class FFmpegCaptureRuntimeAdapter:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 pass
+            self._clear_capture_meter(session_id)
             return
 
         if process.poll() is not None:
+            self._clear_capture_meter(session_id)
             if process.returncode:
                 raise CaptureDeviceError("Audio capture process exited before recording completed")
             return
 
         try:
-            process.communicate(input=b"q\n", timeout=5)
+            if process.stdin is None:
+                raise BrokenPipeError
+            process.stdin.write(b"q\n")
+            process.stdin.flush()
+            process.wait(timeout=5)
         except subprocess.TimeoutExpired as exc:
             process.kill()
             process.wait()
@@ -358,6 +413,8 @@ class FFmpegCaptureRuntimeAdapter:
                 process.kill()
                 process.wait()
             raise CaptureRuntimeError("Capture process control channel failed") from exc
+        finally:
+            self._clear_capture_meter(session_id)
 
         if process.returncode:
             raise CaptureDeviceError("Audio capture process exited before recording completed")

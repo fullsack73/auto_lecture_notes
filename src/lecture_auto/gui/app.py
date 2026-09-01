@@ -718,6 +718,24 @@ class SessionsPage(QWidget):
         capture_row.addWidget(action_button("녹음 시작", self.capture_start, "WorkflowPrimary"))
         capture_row.addWidget(action_button("녹음 중지", self.capture_stop))
         audio_layout.addLayout(capture_row)
+        self.capture_meter_row = QFrame()
+        meter_layout = QHBoxLayout(self.capture_meter_row)
+        meter_layout.setContentsMargins(0, 0, 0, 0)
+        meter_layout.setSpacing(7)
+        meter_layout.addWidget(QLabel("입력 레벨"))
+        self.capture_meter = QProgressBar()
+        self.capture_meter.setRange(0, 60)
+        self.capture_meter.setTextVisible(False)
+        self.capture_meter.setAccessibleName("마이크 입력 레벨")
+        meter_layout.addWidget(self.capture_meter, 1)
+        self.capture_level_label = QLabel("신호 대기 중")
+        self.capture_level_label.setObjectName("WorkflowHint")
+        meter_layout.addWidget(self.capture_level_label)
+        audio_layout.addWidget(self.capture_meter_row)
+        self.capture_level_timer = QTimer(self)
+        self.capture_level_timer.setInterval(100)
+        self.capture_level_timer.timeout.connect(self._refresh_capture_level)
+        self.capture_meter_row.hide()
         audio_layout.addWidget(action_button("오디오 파일 가져오기", self.import_audio))
         refine_row = QHBoxLayout()
         refine_row.setSpacing(7)
@@ -831,6 +849,7 @@ class SessionsPage(QWidget):
         self.current_session_id = session_id
         self._set_actions_enabled(bool(session_id))
         if not session_id:
+            self._set_capture_meter_active(False)
             self.detail_title.setText("세션을 선택하세요")
             self.detail_meta.setText("왼쪽 목록에서 세션을 선택하면 작업 도구와 결과물을 확인할 수 있습니다.")
             self.raw_view.clear()
@@ -839,6 +858,7 @@ class SessionsPage(QWidget):
             self.tabs.setEnabled(False)
             return
         session = self.window.container.session.session_detail(session_id).payload
+        self._set_capture_meter_active(session.get("status") == "recording")
         self.tabs.setEnabled(True)
         self.detail_title.setText(str(session.get("title") or session_id))
         self.detail_meta.setText(
@@ -875,6 +895,28 @@ class SessionsPage(QWidget):
         if not self.current_session_id:
             raise RuntimeError("세션을 선택하세요.")
         return self.current_session_id
+
+    def _set_capture_meter_active(self, active: bool) -> None:
+        self.capture_meter_row.setVisible(active)
+        if active:
+            self.capture_level_timer.start()
+            self._refresh_capture_level()
+        else:
+            self.capture_level_timer.stop()
+            self.capture_meter.setValue(0)
+            self.capture_level_label.setText("신호 대기 중")
+
+    def _refresh_capture_level(self) -> None:
+        if not self.current_session_id:
+            return
+        level = self.window.container.session.capture_level(self.current_session_id)
+        if level is None:
+            self.capture_meter.setValue(0)
+            self.capture_level_label.setText("신호 대기 중")
+            return
+        level = min(0.0, max(-60.0, level))
+        self.capture_meter.setValue(round(level + 60.0))
+        self.capture_level_label.setText(f"{level:.1f} dBFS")
 
     def edit_session(self) -> None:
         sid = self._require_id()

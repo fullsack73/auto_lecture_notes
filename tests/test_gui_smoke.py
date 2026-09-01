@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from lecture_auto.application import AppConfig, ConfigRepository
-from lecture_auto.capture_runtime import AudioDevice
+from lecture_auto.capture_runtime import AudioDevice, NoopCaptureRuntimeAdapter
 from lecture_auto.gui.app import APP_STYLE, MainWindow
 from lecture_auto.local_runtime import RuntimeStatus
 
@@ -137,6 +137,24 @@ def test_session_actions_follow_recording_to_notes_workflow(tmp_path: Path, qtbo
         for label in ("녹음 폴더 열기", "전사문 폴더 열기", "노트 폴더 열기")
     )
     assert all(not button.isEnabled() for button in buttons.values())
+
+
+def test_recording_session_shows_live_microphone_level(tmp_path: Path, qtbot) -> None:
+    window = make_window(tmp_path, qtbot)
+    window.container.session.runtime_adapter = NoopCaptureRuntimeAdapter()
+    window.container.session.session_create("week-01", "2026-07-12", "Intro", "CS101")
+    window.container.session.capture_start("week-01")
+    window.container.session.runtime_adapter.capture_level = lambda _session_id: -18.5
+
+    window.sessions_page.select_session("week-01")
+    window.sessions_page._refresh_capture_level()
+
+    try:
+        assert not window.sessions_page.capture_meter_row.isHidden()
+        assert window.sessions_page.capture_meter.value() == 42
+        assert window.sessions_page.capture_level_label.text() == "-18.5 dBFS"
+    finally:
+        window.container.session.capture_stop("week-01")
 
 
 def test_main_window_starts_with_capture_runtime_metadata(tmp_path: Path, qtbot) -> None:

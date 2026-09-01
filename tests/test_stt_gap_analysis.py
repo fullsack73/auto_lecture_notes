@@ -167,6 +167,35 @@ def test_service_builds_whisper_adapter_when_mode_is_local(tmp_path: Path) -> No
         assert "runtime_manager" in MockAdapter.call_args.kwargs
 
 
+def test_service_does_not_feed_pdf_text_to_whisper_hotwords(tmp_path: Path) -> None:
+    config = STTConfig(mode="local", local_model_name="base", hotwords="SQL")
+    service = _service(tmp_path, config=config)
+    service.session_create(
+        "session-pdf-01",
+        "2026-09-01",
+        title="Database Systems",
+        course="DB",
+    )
+    session = service.store.get_by_session_id("session-pdf-01")
+    assert session is not None
+    session["material_file_path"] = "materials/db/session-pdf-01.pdf"
+    service.store.upsert(session)
+
+    with (
+        patch(
+            "lecture_auto.stt_glossary._extract_material_text",
+            return_value="MaterialPoison MaterialPoison",
+        ),
+        patch("lecture_auto.local_worker_adapter.WorkerWhisperSTTRuntimeAdapter") as mock_adapter,
+    ):
+        service._build_stt_adapter(session_id="session-pdf-01")
+
+    hotwords = mock_adapter.call_args.kwargs["hotwords"]
+    assert "Database Systems" in hotwords
+    assert "SQL" in hotwords
+    assert "materialpoison" not in hotwords.casefold()
+
+
 def test_diarized_segment_speaker_continuity_in_markdown() -> None:
     """Same speaker in consecutive segments should not repeat the speaker header."""
     segments = [

@@ -244,7 +244,7 @@ STT:
 - `api`: Deepgram or an OpenAI-compatible provider
 - `local`: local Whisper/faster-whisper
 - Local mode supports a warm isolated worker, bounded low-confidence retry,
-  session/material glossary hotwords, and confidence/audit sidecars.
+  session glossary hotwords, material-aware refinement, and confidence/audit sidecars.
 
 ### Local STT hardware recommendations
 

@@ -45,7 +45,7 @@ GUI 설정 화면은 콤보·체크·숫자 변경을 짧게 debounce한 뒤 자
 - CPU `cpu_threads=0`은 worker가 물리 core 수를 보수적으로 추정해 사용한다.
   `num_workers`와 함께 무제한 논리 core oversubscription을 만들지 않는다.
 - LLM은 `gemini`와 `ollama` provider를 공통 `LLMProviderAdapter` 경계로 제공한다.
-- 녹음은 FFmpeg/AVFoundation 등 플랫폼 실행 세부사항을 `capture_runtime.py` 안에 둔다. 런타임은 앱에 포함된 `bin/ffmpeg`와 `bin/ffprobe`를 시스템 `PATH`보다 우선한다.
+- 녹음은 FFmpeg/AVFoundation 등 플랫폼 실행 세부사항을 `capture_runtime.py` 안에 둔다. 런타임은 앱에 포함된 `bin/ffmpeg`와 `bin/ffprobe`를 시스템 `PATH`보다 우선한다. 녹음 중 FFmpeg `astats`의 최신 peak dBFS를 서비스 경계로 제공하며 GUI는 이를 입력 레벨 미터로 표시한다.
 - 외부 SDK import는 adapter/runtime 내부에서 지연 import할 수 있으며, 가벼운 명령과 테스트 import를 불필요하게 막지 않는다.
 - provider 예외는 서비스/CLI가 처리할 수 있는 프로젝트 예외로 변환한다.
 
@@ -104,9 +104,10 @@ sample rate, channel, mean/peak volume, clipping 위험과 silence 비율을 측
 DeepFilterNet은 지속 잡음이 확인된 경우에만 A/B 후보가 된다. raw/normalized/denoised
 각각의 CER·용어 recall을 비교해 개선이 없으면 raw를 선택한다. `dynaudnorm`은 기본 off다.
 
-세션 제목·과목·PDF/PPTX의 고유명사, 영문 약어, 전문용어는 최대 64개·1,000자로
-제한하고 중복 제거한 뒤 `hotwords`로 전달한다. 자료 용어는 철자 bias/검증에만 쓰며
-실제 발화의 증거로 취급하지 않는다.
+세션 제목·과목의 고유명사, 영문 약어, 전문용어는 최대 64개·1,000자로 제한하고
+중복 제거한 뒤 `hotwords`로 전달한다. PDF/PPTX 자료 용어는 Whisper 디코딩을
+오염시키지 않도록 STT hotword에 자동 주입하지 않고, LLM 정제의 철자 검증 문맥으로만
+사용하며 실제 발화의 증거로 취급하지 않는다.
 
 LLM refine는 raw sidecar의 timestamp, confidence, 1차/2차 ASR 정보를 선택적 evidence로
 받는다. 문장부호·띄어쓰기·문장 경계·무의미 반복뿐 아니라 강의 주제와 인접 문장으로

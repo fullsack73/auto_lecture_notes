@@ -19,9 +19,13 @@ def test_platform_capture_commands() -> None:
     windows = FFmpegCaptureRuntimeAdapter(ffmpeg_bin="ffmpeg", backend="dshow", platform="win32")
     linux = FFmpegCaptureRuntimeAdapter(ffmpeg_bin="ffmpeg", backend="pulse", platform="linux")
 
-    assert mac._build_capture_command("2", "out.wav") == ["ffmpeg", "-y", "-f", "avfoundation", "-i", ":2", "out.wav"]
-    assert windows._build_capture_command("Microphone", "out.wav") == ["ffmpeg", "-y", "-f", "dshow", "-i", "audio=Microphone", "out.wav"]
-    assert linux._build_capture_command("source.monitor", "out.wav") == ["ffmpeg", "-y", "-f", "pulse", "-i", "source.monitor", "out.wav"]
+    for command in (
+        mac._build_capture_command("2", "out.wav"),
+        windows._build_capture_command("Microphone", "out.wav"),
+        linux._build_capture_command("source.monitor", "out.wav"),
+    ):
+        assert "astats=metadata=1:reset=1" in command[-2]
+        assert command[-1] == "out.wav"
 
 
 def test_selected_device_is_used_without_enumeration() -> None:
@@ -66,6 +70,16 @@ def test_capture_start_keeps_ffmpeg_control_pipe(tmp_path) -> None:
         runtime.start_capture("session", str(tmp_path / "recording.wav"))
 
     assert popen_mock.call_args.kwargs["stdin"] == subprocess.PIPE
+    assert popen_mock.call_args.kwargs["stderr"] == subprocess.PIPE
+
+
+def test_capture_level_parses_latest_ffmpeg_peak() -> None:
+    runtime = FFmpegCaptureRuntimeAdapter(ffmpeg_bin="ffmpeg")
+
+    assert runtime._parse_peak_level(
+        b"lavfi.astats.Overall.Peak_level=-18.063656\n"
+    ) == pytest.approx(-18.063656)
+    assert runtime._parse_peak_level("lavfi.astats.Overall.Peak_level=-inf") == -60.0
 
 
 def test_capture_stop_asks_ffmpeg_to_finalize_output() -> None:
@@ -77,7 +91,9 @@ def test_capture_stop_asks_ffmpeg_to_finalize_output() -> None:
 
     runtime.stop_capture("session")
 
-    process.communicate.assert_called_once_with(input=b"q\n", timeout=5)
+    process.stdin.write.assert_called_once_with(b"q\n")
+    process.stdin.flush.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=5)
     process.terminate.assert_not_called()
     process.kill.assert_not_called()
 

@@ -32,7 +32,7 @@
 
 ### Desktop GUI
 
-PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세션 관리, 녹음, 자료 import, 오디오 정제, 전사, 정제, 노트, library, 설정과 로컬 모델 관리를 제공한다. 설정 변경은 별도 저장 버튼 없이 자동 적용하고 저장 상태를 화면 상단에 표시한다.
+PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세션 관리, 녹음, 자료 import, 오디오 정제, 전사, 정제, 노트, library, 설정과 로컬 모델 관리를 제공한다. 녹음 중에는 현재 오디오 입력의 peak dBFS와 레벨 미터를 표시한다. 설정 변경은 별도 저장 버튼 없이 자동 적용하고 저장 상태를 화면 상단에 표시한다.
 
 ## C. 핵심 기능 범위
 
@@ -45,6 +45,7 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 ### 녹음과 오디오
 
 - 마이크 또는 시스템 오디오 녹음
+- 데스크톱 GUI 녹음 중 실시간 입력 레벨 피드백
 - macOS AVFoundation, Windows DirectShow, Linux PulseAudio/ALSA 기반 FFmpeg 녹음과 플랫폼별 loopback/monitor 장치 지원
 - 볼륨 정규화와 선택적 DeepFilterNet noise reduction
 
@@ -53,7 +54,7 @@ PySide6 기반으로 같은 workspace와 세션 데이터를 공유한다. 세�
 - Deepgram/OpenAI-compatible API STT
 - local Whisper/faster-whisper STT
 - local device/compute/batch/VAD/beam과 용어 hotword 설정
-- session/material glossary biasing과 제한된 저신뢰 구간 고품질 재전사
+- session glossary biasing, 자료 glossary 기반 정제 검증과 제한된 저신뢰 구간 고품질 재전사
 - warm local worker, 하드웨어 profile, 조건부 오디오 후보 비교
 - raw transcript 생성
 - timestamp/confidence/runtime을 담은 raw STT sidecar 생성

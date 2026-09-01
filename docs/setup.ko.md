@@ -239,7 +239,8 @@ lecture-auto config set \
   --stt-quality-retry-max-seconds 120
 ```
 
-세션 제목·과목·PDF/PPTX 자료의 용어는 길이/개수 제한 후 hotword로 합쳐지며,
+세션 제목·과목의 용어는 길이/개수 제한 후 hotword로 합쳐진다. PDF/PPTX 자료 용어를
+Whisper에 넣으면 프롬프트 기반 환각이 생길 수 있어 전사문 정제 문맥에만 사용하며,
 자료에만 있는 내용을 transcript 사실로 삽입하지 않는다. worker 모델 cache의 기본
 idle timeout은 300초이고 `LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS`로 바꿀 수 있다.
 

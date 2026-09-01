@@ -226,10 +226,12 @@ lecture-auto config set \
 ```
 
 Selective retry is bounded to 8 windows and 120 audio seconds by default.
-Session titles, courses, and imported PDF/PPTX terms are deduplicated and capped
-before being passed as hotwords. The material is never treated as evidence that
-content was spoken. Warm workers default to a 300-second idle timeout, configurable
-with `LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS`.
+Session titles and courses are deduplicated and capped before being passed as
+hotwords. Imported PDF/PPTX terms are reserved for transcript refinement context
+because feeding document text to Whisper can cause prompt-driven hallucinations.
+The material is never treated as evidence that content was spoken. Warm workers
+default to a 300-second idle timeout, configurable with
+`LECTURE_AUTO_WARM_WORKER_IDLE_SECONDS`.
 
 For development benchmarks:
 

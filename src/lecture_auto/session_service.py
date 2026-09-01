@@ -277,6 +277,11 @@ class SessionService:
         saved = self._persist_or_raise(session)
         return CommandResult(command="capture stop", payload=saved, message=message)
 
+    def capture_level(self, session_id: str) -> float | None:
+        """Return the latest live capture peak in dBFS when the runtime supports metering."""
+        reader = getattr(self.runtime_adapter, "capture_level", None)
+        return reader(session_id) if reader else None
+
     def session_history(self) -> CommandResult:
         rows = self.store.list_recent_first()
         payload = {
@@ -1776,16 +1781,9 @@ class SessionService:
             if session_id:
                 session = self.store.get_by_session_id(session_id)
                 if session:
-                    material_path = None
-                    relative_material = session.get("material_file_path")
-                    if isinstance(relative_material, str) and relative_material:
-                        material_path = (
-                            self.store.metadata_file.parent.parent / relative_material
-                        )
                     glossary = extract_glossary_terms(
                         title=session.get("title"),
                         course=session.get("course"),
-                        material_path=material_path,
                     )
                     session_hotwords = merge_hotwords(
                         self.stt_config.hotwords,
